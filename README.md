@@ -15,6 +15,8 @@ Le projet vise une base modulaire, stable et extensible, sans dépendance cloud 
 - Scénario historique de base: `earth-2010` (départ en 2010).
 - Boucle de tour type stratégie: soumettre jusqu'à 3 ordres, puis résoudre le tour.
 - Tick déterministe avec influence des voisins + exécution des ordres planifiés.
+- Commandes textuelles de tour (ex: `Investir en France`) converties en actions simulées.
+- Rapport de résolution du tour avec highlights causes -> conséquences.
 - Bascule de contrôle territorial (owner) en situation de crise.
 - Feed d'événements (auto + manuel).
 - Actions locales joueur sur territoire (`stabilize`, `invest`, `influence`, `disrupt`) via file d'ordres.
@@ -69,6 +71,8 @@ genesis-engine/
 - `POST /world/action` (legacy direct)
 - `POST /world/action/queue`
 - `POST /world/action/remove`
+- `POST /world/command/submit`
+- `POST /world/command/remove`
 - `POST /world/resolve`
 - `POST /world/briefing`
 - `GET /world/:worldId`

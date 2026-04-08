@@ -6,7 +6,9 @@ import {
   canAffordAction,
   queuePlayerAction,
   removeQueuedPlayerAction,
+  removeTurnCommand,
   resolveWorldTurn,
+  submitTurnCommand,
   tickWorld,
   triggerWorldEvent
 } from "./simulation.js";
@@ -194,6 +196,61 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     }
 
     const updated = removeQueuedPlayerAction(world, queuedActionId);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/command/submit", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const text = String(req.body?.text ?? "").trim();
+
+    if (!worldId || !text) {
+      res.status(400).json({ error: "worldId and text are required" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    if (world.queuedActions.length >= world.maxActionPoints || world.actionPoints <= 0) {
+      res.status(409).json({
+        error: "No available order slots this turn",
+        actionPoints: world.actionPoints,
+        maxActionPoints: world.maxActionPoints
+      });
+      return;
+    }
+
+    const before = world.submittedCommands.length;
+    const updated = submitTurnCommand(world, text);
+    if (updated.submittedCommands.length === before) {
+      res.status(422).json({ error: "Unable to parse or queue this command" });
+      return;
+    }
+
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/command/remove", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const commandId = String(req.body?.commandId ?? "").trim();
+
+    if (!worldId || !commandId) {
+      res.status(400).json({ error: "worldId and commandId are required" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const updated = removeTurnCommand(world, commandId);
     saveWorld(updated);
     res.json(updated);
   });

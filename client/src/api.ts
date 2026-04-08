@@ -111,3 +111,23 @@ export async function removeQueuedPlayerAction(worldId: string, queuedActionId: 
 
   return parseJson<World>(response);
 }
+
+export async function submitTurnCommand(worldId: string, text: string): Promise<World> {
+  const response = await fetch(`${API_BASE_URL}/world/command/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId, text })
+  });
+
+  return parseJson<World>(response);
+}
+
+export async function removeTurnCommand(worldId: string, commandId: string): Promise<World> {
+  const response = await fetch(`${API_BASE_URL}/world/command/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId, commandId })
+  });
+
+  return parseJson<World>(response);
+}

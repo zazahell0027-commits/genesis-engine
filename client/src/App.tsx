@@ -16,7 +16,9 @@ import {
   getWorldBriefing,
   queuePlayerAction as queuePlayerActionRequest,
   removeQueuedPlayerAction as removeQueuedPlayerActionRequest,
+  removeTurnCommand as removeTurnCommandRequest,
   resolveWorldTurn,
+  submitTurnCommand as submitTurnCommandRequest,
   triggerWorldEvent,
   type WorldBriefing
 } from "./api";
@@ -140,6 +142,7 @@ export default function App(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
   const [mapLens, setMapLens] = useState<MapLens>("control");
+  const [commandText, setCommandText] = useState("");
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Earth 2010",
     kind: "historical",
@@ -276,6 +279,7 @@ export default function App(): React.JSX.Element {
       const updated = await resolveWorldTurn(world.id);
       setWorld(updated);
       setBriefing((prev) => (prev ? { ...prev, tick: updated.tick } : null));
+      await refreshBriefing(updated.id);
       if (beforeImpact) {
         const afterImpact = snapshotCell(updated, beforeImpact.cellId);
         if (afterImpact) {
@@ -335,6 +339,40 @@ export default function App(): React.JSX.Element {
     setError(null);
     try {
       const updated = await removeQueuedPlayerActionRequest(world.id, queuedActionId);
+      setWorld(updated);
+      setLastImpact(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSubmitCommand(): Promise<void> {
+    if (!world) return;
+    const text = commandText.trim();
+    if (!text) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const updated = await submitTurnCommandRequest(world.id, text);
+      setWorld(updated);
+      setCommandText("");
+      setLastImpact(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRemoveCommand(commandId: string): Promise<void> {
+    if (!world) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const updated = await removeTurnCommandRequest(world.id, commandId);
       setWorld(updated);
       setLastImpact(null);
     } catch (err) {
@@ -550,6 +588,54 @@ export default function App(): React.JSX.Element {
           </div>
 
           <aside className="details-panel">
+            <h3>Commandes nationales</h3>
+            <div className="details-block command-panel">
+              <p className="command-helper">
+                Ecris une decision politique (ex: "Investir en France", "Stabiliser les zones tendues", "Influencer le voisinage").
+              </p>
+              <textarea
+                value={commandText}
+                onChange={(event) => setCommandText(event.target.value)}
+                placeholder="Soumettre une action strategique pour ce tour..."
+                rows={3}
+                disabled={loading || !world || !canQueueMoreActions}
+              />
+              <div className="actions command-actions">
+                <button
+                  type="button"
+                  onClick={handleSubmitCommand}
+                  disabled={loading || !world || !canQueueMoreActions || commandText.trim().length === 0}
+                >
+                  Soumettre commande
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCommandText("Stabiliser les zones les plus tendues")}
+                  disabled={loading || !canQueueMoreActions}
+                >
+                  Suggestion rapide
+                </button>
+              </div>
+              {world.submittedCommands.length > 0 && (
+                <div className="command-list">
+                  {world.submittedCommands.slice(-5).reverse().map((command) => (
+                    <div key={command.id} className="command-row">
+                      <div>
+                        <p><strong>{command.text}</strong></p>
+                        <p className="command-meta">{command.rationale}</p>
+                        <p className={`command-status status-${command.status}`}>Statut: {command.status}</p>
+                      </div>
+                      {command.status === "queued" && (
+                        <button type="button" onClick={() => handleRemoveCommand(command.id)} disabled={loading}>
+                          Retirer
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <h3>Territoire selectionne</h3>
             {selectedCell ? (
               <div className="details-block">
@@ -649,6 +735,22 @@ export default function App(): React.JSX.Element {
                     </div>
                   );
                 })
+              )}
+            </div>
+
+            <h3>Rapport du dernier tour</h3>
+            <div className="details-block report-block">
+              {world.lastResolutionReport ? (
+                <>
+                  <p>
+                    Tick {world.lastResolutionReport.tick} | Annee {world.lastResolutionReport.year} | Ordres executes: {world.lastResolutionReport.executedCount}
+                  </p>
+                  {world.lastResolutionReport.highlights.map((line, index) => (
+                    <p key={`${world.lastResolutionReport?.tick ?? 0}-${index}`}>{line}</p>
+                  ))}
+                </>
+              ) : (
+                <p>Aucun tour resolu pour le moment.</p>
               )}
             </div>
 

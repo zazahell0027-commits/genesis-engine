@@ -258,6 +258,76 @@ body {
   margin: 4px 0;
 }
 
+.command-panel textarea {
+  width: 100%;
+  border: 1px solid #cfd9e6;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  box-sizing: border-box;
+  resize: vertical;
+  background: #fff;
+}
+
+.command-helper {
+  color: #475467;
+  font-size: 12px;
+}
+
+.command-actions {
+  margin-top: 8px;
+}
+
+.command-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.command-row {
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.command-row button {
+  border: 1px solid #98a2b3;
+  background: #fff;
+  color: #344054;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  height: fit-content;
+}
+
+.command-meta {
+  color: #667085;
+  font-size: 12px;
+}
+
+.command-status {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-queued {
+  color: #175cd3;
+}
+
+.status-applied {
+  color: #027a48;
+}
+
+.status-cancelled {
+  color: #b42318;
+}
+
 .territory-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -320,6 +390,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.report-block p {
+  font-size: 12px;
 }
 
 .queued-row {

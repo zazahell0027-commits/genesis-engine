@@ -56,6 +56,24 @@ export type QueuedPlayerAction = {
   tickQueued: number;
 };
 
+export type SubmittedTurnCommand = {
+  id: string;
+  text: string;
+  parsedAction: PlayerActionType;
+  parsedCellId: string;
+  rationale: string;
+  status: "queued" | "applied" | "cancelled";
+  tickQueued: number;
+  linkedQueuedActionId: string;
+};
+
+export type TurnResolutionReport = {
+  tick: number;
+  year: number;
+  executedCount: number;
+  highlights: string[];
+};
+
 export type World = {
   id: string;
   name: string;
@@ -74,6 +92,8 @@ export type World = {
   startCellId?: string;
   countryLocked: boolean;
   queuedActions: QueuedPlayerAction[];
+  submittedCommands: SubmittedTurnCommand[];
+  lastResolutionReport?: TurnResolutionReport;
   cells: WorldCell[];
   factions: Faction[];
   events: WorldEvent[];

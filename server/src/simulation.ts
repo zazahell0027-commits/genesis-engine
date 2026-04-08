@@ -3,6 +3,8 @@ import type {
   Faction,
   PlayerActionType,
   QueuedPlayerAction,
+  SubmittedTurnCommand,
+  TurnResolutionReport,
   World,
   WorldCell,
   WorldEvent
@@ -149,6 +151,69 @@ function normalizeAction(action: PlayerActionType): PlayerActionType {
   return action === "incite" ? "disrupt" : action;
 }
 
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function actionFromCommandText(text: string): PlayerActionType {
+  const normalized = normalizeText(text);
+
+  if (/\b(stabil|paix|secur|ordre|calme)\b/.test(normalized)) return "stabilize";
+  if (/\b(invest|eco|industrie|infrastructure|commerce|budget)\b/.test(normalized)) return "invest";
+  if (/\b(influ|diplo|alliance|pression)\b/.test(normalized)) return "influence";
+  if (/\b(perturb|sabot|sanction|attaque|destabil)\b/.test(normalized)) return "disrupt";
+
+  return "invest";
+}
+
+function controlledCells(world: World): WorldCell[] {
+  if (!world.countryLocked || world.role !== "nation" || !world.playerFactionId) {
+    return world.cells;
+  }
+  return world.cells.filter((cell) => cell.owner === world.playerFactionId);
+}
+
+function parseCountryFromCommand(world: World, text: string): string | null {
+  const normalized = normalizeText(text);
+  const countries = new Set(world.cells.map((cell) => cell.country));
+  for (const country of countries) {
+    if (normalized.includes(normalizeText(country))) {
+      return country;
+    }
+  }
+  return null;
+}
+
+function chooseTargetCellFromAction(world: World, action: PlayerActionType, text: string): WorldCell {
+  const allowed = controlledCells(world);
+  const fromCountry = parseCountryFromCommand(world, text);
+
+  if (fromCountry) {
+    const exact = allowed.find((cell) => cell.country === fromCountry);
+    if (exact) return exact;
+  }
+
+  const candidates = allowed.length > 0 ? allowed : world.cells;
+  if (action === "stabilize") {
+    return [...candidates].sort((a, b) => b.tension - a.tension || a.stability - b.stability)[0];
+  }
+  if (action === "invest") {
+    return [...candidates].sort((a, b) => a.richness - b.richness || b.stability - a.stability)[0];
+  }
+  if (action === "influence") {
+    return [...candidates].sort((a, b) => b.tension - a.tension || a.stability - b.stability)[0];
+  }
+  return [...candidates].sort((a, b) => b.tension - a.tension || a.stability - b.stability)[0];
+}
+
+function commandId(world: World): string {
+  return `${world.id}-cmd-${world.tick}-${world.submittedCommands.length + 1}`;
+}
+
 function queueActionId(world: World, cellId: string, action: PlayerActionType): string {
   return `${world.id}-qa-${world.tick}-${cellId}-${action}-${world.queuedActions.length + 1}`;
 }
@@ -214,6 +279,62 @@ export function removeQueuedPlayerAction(world: World, queuedActionId: string): 
     factionId: target?.owner
   }));
 
+  return world;
+}
+
+export function submitTurnCommand(world: World, rawText: string): World {
+  const text = rawText.trim();
+  if (!text) return world;
+  if (world.queuedActions.length >= world.maxActionPoints || world.actionPoints <= 0) return world;
+
+  const action = actionFromCommandText(text);
+  const target = chooseTargetCellFromAction(world, action, text);
+
+  const beforeQueueCount = world.queuedActions.length;
+  queuePlayerAction(world, target.id, action);
+  if (world.queuedActions.length <= beforeQueueCount) {
+    return world;
+  }
+
+  const linkedQueuedActionId = world.queuedActions[world.queuedActions.length - 1]?.id;
+  if (!linkedQueuedActionId) {
+    return world;
+  }
+
+  const command: SubmittedTurnCommand = {
+    id: commandId(world),
+    text,
+    parsedAction: action,
+    parsedCellId: target.id,
+    rationale: `Interprete comme ${action.toUpperCase()} sur ${territoryLabel(target)}.`,
+    status: "queued",
+    tickQueued: world.tick,
+    linkedQueuedActionId
+  };
+
+  world.submittedCommands.push(command);
+  if (world.submittedCommands.length > 40) {
+    world.submittedCommands = world.submittedCommands.slice(-40);
+  }
+
+  pushEvent(world, createEvent(world, "alliance", {
+    title: "National Command Submitted",
+    description: `"${text}" -> ${action.toUpperCase()} on ${territoryLabel(target)}.`,
+    targetCellId: target.id,
+    factionId: target.owner
+  }));
+
+  return world;
+}
+
+export function removeTurnCommand(world: World, commandIdToRemove: string): World {
+  const command = world.submittedCommands.find((item) => item.id === commandIdToRemove);
+  if (!command || command.status !== "queued") {
+    return world;
+  }
+
+  command.status = "cancelled";
+  removeQueuedPlayerAction(world, command.linkedQueuedActionId);
   return world;
 }
 
@@ -447,9 +568,33 @@ export function applyPlayerAction(
 export function resolveWorldTurn(world: World): World {
   const queued = [...world.queuedActions];
   world.queuedActions = [];
+  const highlights: string[] = [];
+
+  for (const command of world.submittedCommands) {
+    if (command.status === "queued") {
+      command.status = "cancelled";
+    }
+  }
 
   for (const planned of queued) {
+    const targetBefore = world.cells.find((cell) => cell.id === planned.cellId);
+    const before = targetBefore
+      ? { richness: targetBefore.richness, stability: targetBefore.stability, tension: targetBefore.tension }
+      : null;
+
     applyPlayerAction(world, planned.cellId, planned.action, { skipCost: true, source: "queued" });
+
+    const linkedCommand = world.submittedCommands.find((command) => command.linkedQueuedActionId === planned.id);
+    if (linkedCommand) {
+      linkedCommand.status = "applied";
+    }
+
+    const targetAfter = world.cells.find((cell) => cell.id === planned.cellId);
+    if (targetAfter && before) {
+      highlights.push(
+        `${planned.action.toUpperCase()} ${territoryLabel(targetAfter)} | R ${before.richness}->${targetAfter.richness}, S ${before.stability}->${targetAfter.stability}, T ${before.tension}->${targetAfter.tension}`
+      );
+    }
   }
 
   const result = tickWorld(world);
@@ -462,6 +607,18 @@ export function resolveWorldTurn(world: World): World {
         ? `${queued.length} planned actions were executed before simulation updates.`
         : "No planned actions submitted. Simulation advanced naturally."
   }));
+
+  const report: TurnResolutionReport = {
+    tick: result.tick,
+    year: result.year,
+    executedCount: queued.length,
+    highlights:
+      highlights.length > 0
+        ? highlights.slice(0, 6)
+        : ["Aucun ordre applique. Le monde evolue uniquement via la simulation globale."]
+  };
+
+  result.lastResolutionReport = report;
 
   return result;
 }

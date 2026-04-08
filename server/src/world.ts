@@ -394,6 +394,8 @@ export function createWorld(input: CreateWorldInput): World {
     startCellId: undefined,
     countryLocked: false,
     queuedActions: [],
+    submittedCommands: [],
+    lastResolutionReport: undefined,
     cells,
     factions,
     events: []
