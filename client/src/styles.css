@@ -194,136 +194,46 @@ body {
   background: #fef3f2;
 }
 
-.theater-map {
-  position: relative;
-  border: 1px solid #0f2748;
+.world-map-wrap {
+  border: 1px solid #0d2444;
   border-radius: 12px;
   overflow: hidden;
-  min-height: 620px;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(90, 130, 170, 0.26) 0%, transparent 45%),
-    radial-gradient(circle at 18% 32%, rgba(255, 255, 255, 0.08) 0%, transparent 42%),
-    radial-gradient(circle at 82% 63%, rgba(255, 255, 255, 0.07) 0%, transparent 44%),
-    linear-gradient(180deg, #0e2b52 0%, #0b2446 42%, #081c35 100%);
+  background: #0c2445;
 }
 
-.theater-ocean-layer {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 13% 28%, rgba(255, 255, 255, 0.14), transparent 46%),
-    radial-gradient(circle at 72% 24%, rgba(255, 255, 255, 0.09), transparent 40%),
-    radial-gradient(circle at 52% 80%, rgba(255, 255, 255, 0.1), transparent 52%);
-  opacity: 0.55;
-  pointer-events: none;
+.world-map-svg {
+  width: 100%;
+  display: block;
+  aspect-ratio: 2 / 1;
 }
 
-.theater-graticule {
-  position: absolute;
-  inset: 0;
-  background:
-    repeating-linear-gradient(
-      to right,
-      transparent 0,
-      transparent calc(16.6% - 1px),
-      rgba(203, 225, 255, 0.11) calc(16.6% - 1px),
-      rgba(203, 225, 255, 0.11) 16.6%
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(20% - 1px),
-      rgba(203, 225, 255, 0.1) calc(20% - 1px),
-      rgba(203, 225, 255, 0.1) 20%
-    );
-  opacity: 0.2;
-  pointer-events: none;
-}
-
-.continent-label {
-  position: absolute;
-  font-size: 11px;
-  color: #eef6ff;
-  font-weight: 700;
-  letter-spacing: 0.9px;
-  text-transform: uppercase;
-  text-shadow: 0 2px 8px rgba(1, 12, 31, 0.85);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.continent-cloud {
-  position: absolute;
-  border-radius: 40% 60% 52% 48% / 45% 38% 62% 55%;
-  background: radial-gradient(circle at 50% 40%, rgba(125, 168, 108, 0.28) 0%, rgba(74, 114, 68, 0.18) 55%, transparent 95%);
-  filter: blur(1px);
-  opacity: 0.8;
-  z-index: 1;
-  pointer-events: none;
-}
-
-.territory-node {
-  position: absolute;
-  width: 52px;
-  min-height: 44px;
-  border: 1px solid #08162a;
-  border-radius: 4px;
-  clip-path: polygon(
-    var(--shape-a, 22%) 0%,
-    100% var(--shape-c, 16%),
-    var(--shape-b, 84%) 100%,
-    0% var(--shape-d, 78%)
-  );
-  background: var(--owner-tint, #f8fafc);
-  text-align: center;
-  padding: 4px 3px;
+.country-shape {
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  box-shadow: 0 2px 8px rgba(6, 18, 37, 0.32);
-  transition: transform 120ms ease, box-shadow 120ms ease;
-  z-index: 3;
+  transition: opacity 120ms ease, transform 120ms ease;
+  vector-effect: non-scaling-stroke;
+  transform-origin: center;
 }
 
-.territory-node:hover {
-  transform: translateY(-1px) scale(1.04);
-  box-shadow: 0 4px 10px rgba(6, 18, 37, 0.35);
+.country-shape:hover {
+  opacity: 0.95;
 }
 
-.node-code {
-  font-size: 10px;
+.country-shape.active:hover {
+  filter: brightness(1.08);
+}
+
+.feature-marker {
+  fill: #fff;
+  filter: drop-shadow(0 0 2px #000);
+}
+
+.country-label {
+  fill: #e6edf8;
+  font-size: 0.8px;
   font-weight: 700;
-  line-height: 1;
-  color: #f8fafc;
-  text-shadow: 0 1px 1px rgba(3, 10, 20, 0.6);
-}
-
-.node-owner,
-.node-metrics {
-  font-size: 9px;
-  line-height: 1;
-  color: #f1f5f9;
-  text-shadow: 0 1px 1px rgba(3, 10, 20, 0.65);
-}
-
-.territory-node.stable {
-  border-color: #84caff;
-}
-
-.territory-node.warning {
-  border-color: #f79009;
-}
-
-.territory-node.danger {
-  border-color: #f04438;
-  box-shadow: 0 0 0 1px rgba(240, 68, 56, 0.9), 0 2px 8px rgba(15, 23, 42, 0.28);
-}
-
-.territory-node.selected {
-  box-shadow: 0 0 0 2px #c6ddff, 0 0 0 4px #155eef, 0 4px 12px rgba(6, 18, 37, 0.4);
-  z-index: 5;
+  letter-spacing: 0.05px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
 }
 
 .details-panel {
@@ -446,12 +356,7 @@ pre {
 }
 
 @media (max-width: 700px) {
-  .theater-map {
-    min-height: 520px;
-  }
-
-  .territory-node {
-    width: 46px;
-    min-height: 38px;
+  .country-label {
+    font-size: 0.95px;
   }
 }

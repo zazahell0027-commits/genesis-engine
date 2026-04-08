@@ -17,6 +17,7 @@ import {
   triggerWorldEvent,
   type WorldBriefing
 } from "./api";
+import { WorldGeoMap } from "./components/WorldGeoMap";
 import "./styles.css";
 
 type ViewMode = "landing" | "world";
@@ -44,21 +45,6 @@ type ContinentOverview = {
 
 type MapLens = "control" | "tension" | "stability";
 
-type ProjectedTerritory = {
-  cell: WorldCell;
-  continent: string;
-  left: number;
-  top: number;
-};
-
-type ContinentCloud = {
-  continent: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
 type TerritorySnapshot = {
   cellId: string;
   richness: number;
@@ -76,24 +62,6 @@ type TerritoryImpact = {
 };
 
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
-const historicalContinentOrder = [
-  "North America",
-  "South America",
-  "Europe",
-  "Africa",
-  "Asia",
-  "Oceania"
-];
-
-function ownerTint(ownerColor: string): string {
-  return `${ownerColor}26`;
-}
-
-function getCellClass(cell: WorldCell): string {
-  if (cell.tension > 65) return "danger";
-  if (cell.stability < 40) return "warning";
-  return "stable";
-}
 
 function getRiskLabel(cell: WorldCell): string {
   if (cell.tension > 65) return "Conflit";
@@ -127,15 +95,6 @@ function factionName(world: World | null, ownerId: string): string {
   return world.factions.find((faction) => faction.id === ownerId)?.name ?? ownerId;
 }
 
-function factionShortName(name: string): string {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .slice(0, 3)
-    .join("");
-}
-
 function eventTypeLabel(type: EventType): string {
   if (type === "troubles") return "Troubles";
   if (type === "alliance") return "Alliance";
@@ -149,14 +108,6 @@ function getOwnerColor(world: World, ownerId: string): string {
   return ownerPalette[(ownerIndex + ownerPalette.length) % ownerPalette.length] ?? "#334155";
 }
 
-function countryCode(country: string): string {
-  const parts = country.split(" ").filter(Boolean);
-  if (parts.length === 1) {
-    return parts[0].slice(0, 3).toUpperCase();
-  }
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
-}
-
 function yearAtEvent(world: World, eventTick: number): number {
   return world.year - (world.tick - eventTick);
 }
@@ -164,45 +115,6 @@ function yearAtEvent(world: World, eventTick: number): number {
 function average(values: number[]): number {
   if (values.length === 0) return 0;
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
-}
-
-function seededNoise(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) % 100003;
-  }
-  return (hash % 1000) / 1000;
-}
-
-function clampPercent(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-function mapValueColor(value: number, low: string, high: string): string {
-  const t = clampPercent(value, 0, 100) / 100;
-
-  const parse = (color: string): [number, number, number] => {
-    const normalized = color.replace("#", "");
-    const valueInt = Number.parseInt(normalized, 16);
-    return [(valueInt >> 16) & 255, (valueInt >> 8) & 255, valueInt & 255];
-  };
-
-  const [r1, g1, b1] = parse(low);
-  const [r2, g2, b2] = parse(high);
-  const r = Math.round(r1 + (r2 - r1) * t);
-  const g = Math.round(g1 + (g2 - g1) * t);
-  const b = Math.round(b1 + (b2 - b1) * t);
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-function territoryFillColor(world: World, cell: WorldCell, lens: MapLens): string {
-  if (lens === "control") {
-    return ownerTint(getOwnerColor(world, cell.owner));
-  }
-  if (lens === "tension") {
-    return mapValueColor(cell.tension, "#c7f9d2", "#c4162a");
-  }
-  return mapValueColor(cell.stability, "#c4162a", "#1f9d55");
 }
 
 export default function App(): React.JSX.Element {
@@ -251,74 +163,6 @@ export default function App(): React.JSX.Element {
         avgTension: average(cells.map((cell) => cell.tension))
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [world]);
-
-  const worldMapData = useMemo(() => {
-    if (!world) {
-      return {
-        territories: [] as ProjectedTerritory[],
-        labels: [] as Array<{ continent: string; x: number; y: number }>,
-        clouds: [] as ContinentCloud[]
-      };
-    }
-
-    const projected: ProjectedTerritory[] = world.cells.map((cell) => {
-      const lon = world.width <= 1 ? 0 : (cell.x / (world.width - 1)) * 360 - 180;
-      const lat = world.height <= 1 ? 0 : 90 - (cell.y / (world.height - 1)) * 180;
-      const jitterX = (seededNoise(`${cell.id}:jx`) - 0.5) * 2.2;
-      const jitterY = (seededNoise(`${cell.id}:jy`) - 0.5) * 2.1;
-
-      return {
-        cell,
-        continent: cell.continent,
-        left: clampPercent(((lon + 180) / 360) * 100 + jitterX, 1.2, 97.5),
-        top: clampPercent(((90 - lat) / 180) * 100 + jitterY, 4, 94.5)
-      };
-    });
-
-    const groups = new Map<string, ProjectedTerritory[]>();
-    projected.forEach((item) => {
-      const bucket = groups.get(item.continent) ?? [];
-      bucket.push(item);
-      groups.set(item.continent, bucket);
-    });
-
-    const orderedNames = world.kind === "historical"
-      ? historicalContinentOrder.filter((name) => groups.has(name))
-      : [];
-    const remaining = [...groups.keys()].filter((name) => !orderedNames.includes(name)).sort((a, b) => a.localeCompare(b));
-    const finalOrder = [...orderedNames, ...remaining];
-
-    const labels: Array<{ continent: string; x: number; y: number }> = [];
-    const clouds: ContinentCloud[] = [];
-
-    finalOrder.forEach((continent) => {
-      const list = groups.get(continent) ?? [];
-      if (list.length === 0) return;
-
-      const xs = list.map((item) => item.left);
-      const ys = list.map((item) => item.top);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-
-      labels.push({
-        continent,
-        x: (minX + maxX) / 2,
-        y: Math.max(5, minY - 5)
-      });
-
-      clouds.push({
-        continent,
-        left: clampPercent(minX - 3, 0, 100),
-        top: clampPercent(minY - 2.5, 0, 100),
-        width: clampPercent(maxX - minX + 6, 8, 40),
-        height: clampPercent(maxY - minY + 5.5, 6, 26)
-      });
-    });
-
-    return { territories: projected, labels, clouds };
   }, [world]);
 
   const localEvents = useMemo(() => {
@@ -655,66 +499,13 @@ export default function App(): React.JSX.Element {
               <span className="legend-item danger">Conflit</span>
             </div>
 
-            <div className="theater-map">
-              <div className="theater-ocean-layer" />
-              <div className="theater-graticule" />
-
-              {worldMapData.clouds.map((cloud) => (
-                <div
-                  key={cloud.continent}
-                  className="continent-cloud"
-                  style={{
-                    left: `${cloud.left}%`,
-                    top: `${cloud.top}%`,
-                    width: `${cloud.width}%`,
-                    height: `${cloud.height}%`
-                  }}
-                />
-              ))}
-
-              {worldMapData.labels.map((label) => (
-                <div
-                  key={label.continent}
-                  className="continent-label"
-                  style={{ left: `${label.x}%`, top: `${label.y}%` }}
-                >
-                  {label.continent}
-                </div>
-              ))}
-
-              {worldMapData.territories.map((territory) => {
-                const { cell } = territory;
-                const ownerColor = getOwnerColor(world, cell.owner);
-                const ownerLabel = factionShortName(factionName(world, cell.owner));
-                const statusClass = getCellClass(cell);
-
-                return (
-                  <button
-                    key={cell.id}
-                    type="button"
-                    onClick={() => setSelectedCellId(cell.id)}
-                    className={`territory-node ${statusClass}${selectedCellId === cell.id ? " selected" : ""}`}
-                    aria-label={`${cell.country} ${cell.x},${cell.y}`}
-                    aria-pressed={selectedCellId === cell.id}
-                    style={{
-                      left: `${territory.left}%`,
-                      top: `${territory.top}%`,
-                      "--owner-color": ownerColor,
-                      "--owner-tint": territoryFillColor(world, cell, mapLens),
-                      "--shape-a": `${20 + Math.round(seededNoise(`${cell.id}:a`) * 22)}%`,
-                      "--shape-b": `${72 + Math.round(seededNoise(`${cell.id}:b`) * 20)}%`,
-                      "--shape-c": `${14 + Math.round(seededNoise(`${cell.id}:c`) * 20)}%`,
-                      "--shape-d": `${78 + Math.round(seededNoise(`${cell.id}:d`) * 17)}%`
-                    } as React.CSSProperties}
-                    title={`${cell.country} | ${territory.continent} | ${factionName(world, cell.owner)} | R${cell.richness} S${cell.stability} T${cell.tension}`}
-                  >
-                    <span className="node-code">{countryCode(cell.country)}</span>
-                    <span className="node-owner">{ownerLabel}</span>
-                    <span className="node-metrics">S{cell.stability} T{cell.tension}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <WorldGeoMap
+              world={world}
+              mapLens={mapLens}
+              selectedCellId={selectedCellId}
+              onSelectCell={setSelectedCellId}
+              getOwnerColor={(ownerId) => getOwnerColor(world, ownerId)}
+            />
           </div>
 
           <aside className="details-panel">
