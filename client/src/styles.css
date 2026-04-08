@@ -50,6 +50,9 @@ button:disabled {
   flex-direction: column;
   gap: 2px;
   font-size: 11px;
+  width: 100%;
+  text-align: left;
+  appearance: none;
 }
 
 .cell span {
@@ -70,6 +73,18 @@ button:disabled {
 .cell.danger {
   border-color: #f04438;
   background: #fef3f2;
+}
+
+.cell.selected {
+  outline: 2px solid #155eef;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px #155eef inset;
+}
+
+.selected-info {
+  margin: 8px 0 10px;
+  font-size: 14px;
+  color: #0f172a;
 }
 
 pre {
