@@ -1,13 +1,14 @@
-﻿import type {
-  CreateWorldInput,
-  Faction,
-  MapSize,
-  PoliticalComplexity,
-  RoleType,
-  World,
-  WorldCell,
-  WorldEvent,
-  WorldKind
+﻿import {
+  HISTORICAL_START_COUNTRIES,
+  type CreateWorldInput,
+  type Faction,
+  type MapSize,
+  type PoliticalComplexity,
+  type RoleType,
+  type World,
+  type WorldCell,
+  type WorldEvent,
+  type WorldKind
 } from "@genesis/shared";
 
 const worlds = new Map<string, World>();
@@ -29,6 +30,7 @@ const fictionalFactionNames = [
 ];
 
 const fictionalContinents = ["Nordreach", "Verdelune", "Duskfall", "Sables d'Astra"];
+const historicalStartCountrySet = new Set<string>(HISTORICAL_START_COUNTRIES);
 
 type GeoProfile = {
   continent: string;
@@ -223,6 +225,37 @@ function createCell(x: number, y: number, owner: string, geo: GeoProfile, worldI
   };
 }
 
+function resolveHistoricalStartCountry(input: CreateWorldInput, cells: WorldCell[]): string {
+  const requested = input.startCountry;
+  if (requested && historicalStartCountrySet.has(requested) && cells.some((cell) => cell.country === requested)) {
+    return requested;
+  }
+
+  if (cells.some((cell) => cell.country === "France")) {
+    return "France";
+  }
+
+  const allowedFallback = cells.find((cell) => historicalStartCountrySet.has(cell.country));
+  if (allowedFallback) {
+    return allowedFallback.country;
+  }
+
+  return cells[0]?.country ?? "France";
+}
+
+function firstCellForCountry(cells: WorldCell[], country: string): WorldCell | undefined {
+  return cells.find((cell) => cell.country === country);
+}
+
+function alignCountryOwnership(cells: WorldCell[], country: string, factionId: string): void {
+  for (const cell of cells) {
+    if (cell.country !== country) continue;
+    cell.owner = factionId;
+    cell.stability = clamp(cell.stability + 4, 0, 100);
+    cell.tension = clamp(cell.tension - 3, 0, 100);
+  }
+}
+
 function createInitialEvent(world: World): WorldEvent {
   const type = world.kind === "historical" ? "alliance" : "discovery";
   return {
@@ -234,6 +267,24 @@ function createInitialEvent(world: World): WorldEvent {
       world.kind === "historical"
         ? `${world.name} starts in ${world.year} with ${world.factions.length} power blocs.`
         : `${world.name} starts with ${world.factions.length} active factions.`
+  };
+}
+
+function createNationStartEvent(world: World): WorldEvent | null {
+  if (!world.countryLocked || !world.playerCountry || !world.playerFactionId) {
+    return null;
+  }
+
+  const factionName = world.factions.find((faction) => faction.id === world.playerFactionId)?.name ?? world.playerFactionId;
+
+  return {
+    id: `${world.id}-evt-player-start`,
+    tick: 0,
+    type: "alliance",
+    title: "Nation Selected",
+    description: `You start as ${world.playerCountry} under ${factionName}. Control is locked for this run.`,
+    targetCellId: world.startCellId,
+    factionId: world.playerFactionId
   };
 }
 
@@ -286,12 +337,43 @@ export function createWorld(input: CreateWorldInput): World {
     role,
     kind,
     complexity,
+    playerCountry: undefined,
+    playerFactionId: undefined,
+    startCellId: undefined,
+    countryLocked: false,
     cells,
     factions,
     events: []
   };
 
+  if (kind === "historical") {
+    const selectedCountry = resolveHistoricalStartCountry(input, cells);
+    const startCell = firstCellForCountry(cells, selectedCountry) ?? cells[0];
+
+    if (startCell) {
+      world.playerCountry = selectedCountry;
+      world.startCellId = startCell.id;
+
+      if (role === "nation") {
+        world.playerFactionId = startCell.owner;
+        world.countryLocked = true;
+        alignCountryOwnership(cells, selectedCountry, startCell.owner);
+
+        const playerFaction = factions.find((faction) => faction.id === startCell.owner);
+        if (playerFaction) {
+          playerFaction.power = clamp(playerFaction.power + 4, 0, 100);
+          playerFaction.resources = clamp(playerFaction.resources + 4, 0, 100);
+        }
+      }
+    }
+  }
+
   world.events.push(createInitialEvent(world));
+  const nationStartEvent = createNationStartEvent(world);
+  if (nationStartEvent) {
+    world.events.unshift(nationStartEvent);
+  }
+
   worlds.set(id, world);
   return world;
 }
@@ -302,7 +384,8 @@ export function createDemoWorld(): World {
     kind: "historical",
     complexity: "medium",
     mapSize: "medium",
-    role: "nation"
+    role: "nation",
+    startCountry: "France"
   });
 }
 

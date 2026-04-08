@@ -1,8 +1,10 @@
-﻿import type { EventType, PlayerActionType, World } from "@genesis/shared";
+﻿import { HISTORICAL_START_COUNTRIES, type EventType, type PlayerActionType, type World } from "@genesis/shared";
 import type { Request, Response } from "express";
 import type { AIProvider } from "./ai/types.js";
 import { applyPlayerAction, canAffordAction, tickWorld, triggerWorldEvent } from "./simulation.js";
 import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
+
+const historicalCountrySet = new Set<string>(HISTORICAL_START_COUNTRIES);
 
 function average(values: number[]): number {
   if (values.length === 0) return 0;
@@ -19,6 +21,10 @@ function latestEventText(world: World): string | undefined {
   const event = world.events[0];
   if (!event) return undefined;
   return `${event.title}: ${event.description}`;
+}
+
+function isHistoricalStartCountry(value: unknown): boolean {
+  return typeof value === "string" && historicalCountrySet.has(value);
 }
 
 export function registerRoutes(app: import("express").Express, ai: AIProvider): void {
@@ -39,6 +45,18 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
   });
 
   app.post("/world/create", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as {
+      kind?: string;
+      startCountry?: unknown;
+    };
+
+    if (payload.kind === "historical" && payload.startCountry !== undefined && !isHistoricalStartCountry(payload.startCountry)) {
+      res.status(400).json({
+        error: `Invalid startCountry. Allowed values: ${HISTORICAL_START_COUNTRIES.join(", ")}`
+      });
+      return;
+    }
+
     const world = createWorld(req.body ?? {});
     res.status(201).json(world);
   });
@@ -104,6 +122,21 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const world = getWorld(worldId);
     if (!world) {
       res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const target = world.cells.find((cell) => cell.id === cellId);
+    if (!target) {
+      res.status(404).json({ error: "Cell not found" });
+      return;
+    }
+
+    if (world.countryLocked && world.role === "nation" && world.playerFactionId && target.owner !== world.playerFactionId) {
+      res.status(403).json({
+        error: `Territory not controlled by your nation (${world.playerCountry ?? "locked country"}).`,
+        playerFactionId: world.playerFactionId,
+        playerCountry: world.playerCountry
+      });
       return;
     }
 

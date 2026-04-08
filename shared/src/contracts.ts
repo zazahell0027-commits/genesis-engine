@@ -5,6 +5,21 @@ export type MapSize = "small" | "medium" | "large";
 export type EventType = "troubles" | "alliance" | "expansion" | "crisis_local" | "discovery";
 export type PlayerActionType = "stabilize" | "invest" | "influence" | "disrupt" | "incite";
 
+export const HISTORICAL_START_COUNTRIES = [
+  "France",
+  "United Kingdom",
+  "German Empire",
+  "Russian Empire",
+  "United States",
+  "Japan",
+  "Ottoman Heartland",
+  "Qing China",
+  "Brazil",
+  "Egypt"
+] as const;
+
+export type HistoricalStartCountry = (typeof HISTORICAL_START_COUNTRIES)[number];
+
 export type WorldCell = {
   id: string;
   x: number;
@@ -47,6 +62,10 @@ export type World = {
   role: RoleType;
   kind: WorldKind;
   complexity: PoliticalComplexity;
+  playerCountry?: string;
+  playerFactionId?: string;
+  startCellId?: string;
+  countryLocked: boolean;
   cells: WorldCell[];
   factions: Faction[];
   events: WorldEvent[];
@@ -60,4 +79,5 @@ export type CreateWorldInput = {
   height?: number;
   mapSize?: MapSize;
   role?: RoleType;
+  startCountry?: HistoricalStartCountry;
 };
