@@ -9,6 +9,7 @@ import type {
   WorldCell
 } from "@genesis/shared";
 import {
+  applyPlayerAction,
   createDemoWorld,
   createWorld,
   getWorldBriefing,
@@ -207,6 +208,22 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  async function handlePlayerAction(action: "stabilize" | "invest" | "incite"): Promise<void> {
+    if (!world || !selectedCell) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const updated = await applyPlayerAction(world.id, selectedCell.id, action);
+      setWorld(updated);
+      await refreshBriefing(updated.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   if (viewMode === "landing") {
     return (
       <main className="container">
@@ -381,6 +398,17 @@ export default function App(): React.JSX.Element {
                 <p>Richesse: {selectedCell.richness}</p>
                 <p>Stabilité: {selectedCell.stability}</p>
                 <p>Tensions: {selectedCell.tension}</p>
+                <div className="actions territory-actions">
+                  <button type="button" onClick={() => handlePlayerAction("stabilize")} disabled={loading}>
+                    Stabiliser
+                  </button>
+                  <button type="button" onClick={() => handlePlayerAction("invest")} disabled={loading}>
+                    Investir
+                  </button>
+                  <button type="button" onClick={() => handlePlayerAction("incite")} disabled={loading}>
+                    Provoquer
+                  </button>
+                </div>
               </div>
             ) : (
               <p>Sélectionne une case de la grille.</p>

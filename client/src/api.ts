@@ -1,4 +1,4 @@
-﻿import type { CreateWorldInput, EventType, World } from "@genesis/shared";
+﻿import type { CreateWorldInput, EventType, PlayerActionType, World } from "@genesis/shared";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -63,4 +63,14 @@ export async function getWorldBriefing(worldId: string): Promise<WorldBriefing> 
   });
 
   return parseJson<WorldBriefing>(response);
+}
+
+export async function applyPlayerAction(worldId: string, cellId: string, action: PlayerActionType): Promise<World> {
+  const response = await fetch(`${API_BASE_URL}/world/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId, cellId, action })
+  });
+
+  return parseJson<World>(response);
 }

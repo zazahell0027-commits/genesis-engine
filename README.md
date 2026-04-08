@@ -13,6 +13,7 @@ Le projet vise une base modulaire, stable et extensible, sans dépendance cloud 
 - Tick déterministe avec influence des voisins.
 - Bascule de contrôle territorial (owner) en situation de crise.
 - Feed d'événements (auto + manuel).
+- Actions locales joueur sur territoire (`stabilize`, `invest`, `incite`).
 - Narration IA locale via backend (`/world/briefing`).
 - Fallback automatique mock si IA désactivée ou indisponible.
 
@@ -61,6 +62,7 @@ genesis-engine/
 - `POST /world/demo`
 - `POST /world/tick`
 - `POST /world/event`
+- `POST /world/action`
 - `POST /world/briefing`
 - `GET /world/:worldId`
 

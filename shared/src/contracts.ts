@@ -3,6 +3,7 @@ export type WorldKind = "historical" | "fictional";
 export type PoliticalComplexity = "low" | "medium" | "high";
 export type MapSize = "small" | "medium" | "large";
 export type EventType = "troubles" | "alliance" | "expansion" | "crisis_local" | "discovery";
+export type PlayerActionType = "stabilize" | "invest" | "incite";
 
 export type WorldCell = {
   id: string;

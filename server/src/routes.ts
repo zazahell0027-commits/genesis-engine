@@ -1,8 +1,8 @@
-﻿import type { EventType, World } from "@genesis/shared";
+﻿import type { EventType, PlayerActionType, World } from "@genesis/shared";
 import type { Request, Response } from "express";
-import { tickWorld, triggerWorldEvent } from "./simulation.js";
-import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
 import type { AIProvider } from "./ai/types.js";
+import { applyPlayerAction, tickWorld, triggerWorldEvent } from "./simulation.js";
+import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
 
 function average(values: number[]): number {
   if (values.length === 0) return 0;
@@ -82,6 +82,32 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     }
 
     const updated = triggerWorldEvent(world, type);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/action", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const cellId = String(req.body?.cellId ?? "").trim();
+    const action = req.body?.action as PlayerActionType | undefined;
+
+    if (!worldId || !cellId || !action) {
+      res.status(400).json({ error: "worldId, cellId and action are required" });
+      return;
+    }
+
+    if (!["stabilize", "invest", "incite"].includes(action)) {
+      res.status(400).json({ error: "Invalid action" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const updated = applyPlayerAction(world, cellId, action);
     saveWorld(updated);
     res.json(updated);
   });

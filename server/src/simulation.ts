@@ -1,4 +1,4 @@
-﻿import type { EventType, Faction, World, WorldCell, WorldEvent } from "@genesis/shared";
+﻿import type { EventType, Faction, PlayerActionType, World, WorldCell, WorldEvent } from "@genesis/shared";
 
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));
@@ -185,6 +185,48 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
   return world;
 }
 
+export function applyPlayerAction(world: World, cellId: string, action: PlayerActionType): World {
+  const target = world.cells.find((cell) => cell.id === cellId);
+  if (!target) {
+    return world;
+  }
+
+  if (action === "stabilize") {
+    target.stability = clamp(target.stability + 9);
+    target.tension = clamp(target.tension - 6);
+
+    pushEvent(world, createEvent(world, "alliance", {
+      title: "Local Stabilization",
+      description: `Une action de stabilisation renforce (${target.x}, ${target.y}).`,
+      targetCellId: target.id,
+      factionId: target.owner
+    }));
+  } else if (action === "invest") {
+    target.richness = clamp(target.richness + 10);
+    target.stability = clamp(target.stability + 2);
+
+    pushEvent(world, createEvent(world, "discovery", {
+      title: "Economic Investment",
+      description: `Un investissement accélère le développement de (${target.x}, ${target.y}).`,
+      targetCellId: target.id,
+      factionId: target.owner
+    }));
+  } else {
+    target.tension = clamp(target.tension + 12);
+    target.stability = clamp(target.stability - 6);
+
+    pushEvent(world, createEvent(world, "troubles", {
+      title: "Provocation",
+      description: `Une provocation enflamme la zone (${target.x}, ${target.y}).`,
+      targetCellId: target.id,
+      factionId: target.owner
+    }));
+  }
+
+  updateFactionStats(world);
+  return world;
+}
+
 export function tickWorld(world: World): World {
   world.tick += 1;
 
@@ -199,10 +241,6 @@ export function tickWorld(world: World): World {
     const neighborTensionAvg = neighbors.length > 0
       ? average(neighbors.map((neighbor) => neighbor.tension))
       : before.tension;
-
-    const neighborStabilityAvg = neighbors.length > 0
-      ? average(neighbors.map((neighbor) => neighbor.stability))
-      : before.stability;
 
     const noise = deterministicDelta(world, cell.id);
 
