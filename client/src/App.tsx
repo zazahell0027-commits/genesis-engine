@@ -42,17 +42,21 @@ type ContinentOverview = {
   avgTension: number;
 };
 
-type ContinentAnchor = {
-  x: number;
-  y: number;
-  columns: number;
-};
+type MapLens = "control" | "tension" | "stability";
 
-type TheaterTerritory = {
+type ProjectedTerritory = {
   cell: WorldCell;
   continent: string;
   left: number;
   top: number;
+};
+
+type ContinentCloud = {
+  continent: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 };
 
 type TerritorySnapshot = {
@@ -80,20 +84,6 @@ const historicalContinentOrder = [
   "Asia",
   "Oceania"
 ];
-const historicalAnchors: Record<string, ContinentAnchor> = {
-  "North America": { x: 8, y: 12, columns: 6 },
-  "South America": { x: 16, y: 50, columns: 5 },
-  Europe: { x: 44, y: 14, columns: 6 },
-  Africa: { x: 47, y: 36, columns: 6 },
-  Asia: { x: 62, y: 14, columns: 8 },
-  Oceania: { x: 78, y: 56, columns: 5 }
-};
-const fictionalAnchors: Record<string, ContinentAnchor> = {
-  Nordreach: { x: 20, y: 14, columns: 6 },
-  Verdelune: { x: 43, y: 20, columns: 7 },
-  Duskfall: { x: 66, y: 18, columns: 7 },
-  "Sables d'Astra": { x: 46, y: 52, columns: 7 }
-};
 
 function ownerTint(ownerColor: string): string {
   return `${ownerColor}26`;
@@ -176,6 +166,45 @@ function average(values: number[]): number {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
+function seededNoise(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) % 100003;
+  }
+  return (hash % 1000) / 1000;
+}
+
+function clampPercent(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function mapValueColor(value: number, low: string, high: string): string {
+  const t = clampPercent(value, 0, 100) / 100;
+
+  const parse = (color: string): [number, number, number] => {
+    const normalized = color.replace("#", "");
+    const valueInt = Number.parseInt(normalized, 16);
+    return [(valueInt >> 16) & 255, (valueInt >> 8) & 255, valueInt & 255];
+  };
+
+  const [r1, g1, b1] = parse(low);
+  const [r2, g2, b2] = parse(high);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function territoryFillColor(world: World, cell: WorldCell, lens: MapLens): string {
+  if (lens === "control") {
+    return ownerTint(getOwnerColor(world, cell.owner));
+  }
+  if (lens === "tension") {
+    return mapValueColor(cell.tension, "#c7f9d2", "#c4162a");
+  }
+  return mapValueColor(cell.stability, "#c4162a", "#1f9d55");
+}
+
 export default function App(): React.JSX.Element {
   const [viewMode, setViewMode] = useState<ViewMode>("landing");
   const [world, setWorld] = useState<World | null>(null);
@@ -186,6 +215,7 @@ export default function App(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
+  const [mapLens, setMapLens] = useState<MapLens>("control");
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Demo",
     kind: "historical",
@@ -223,53 +253,72 @@ export default function App(): React.JSX.Element {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [world]);
 
-  const theaterMap = useMemo(() => {
+  const worldMapData = useMemo(() => {
     if (!world) {
       return {
-        territories: [] as TheaterTerritory[],
-        labels: [] as Array<{ continent: string; x: number; y: number }>
+        territories: [] as ProjectedTerritory[],
+        labels: [] as Array<{ continent: string; x: number; y: number }>,
+        clouds: [] as ContinentCloud[]
       };
     }
 
-    const groups = new Map<string, WorldCell[]>();
-    for (const cell of world.cells) {
-      const bucket = groups.get(cell.continent) ?? [];
-      bucket.push(cell);
-      groups.set(cell.continent, bucket);
-    }
+    const projected: ProjectedTerritory[] = world.cells.map((cell) => {
+      const lon = world.width <= 1 ? 0 : (cell.x / (world.width - 1)) * 360 - 180;
+      const lat = world.height <= 1 ? 0 : 90 - (cell.y / (world.height - 1)) * 180;
+      const jitterX = (seededNoise(`${cell.id}:jx`) - 0.5) * 2.2;
+      const jitterY = (seededNoise(`${cell.id}:jy`) - 0.5) * 2.1;
+
+      return {
+        cell,
+        continent: cell.continent,
+        left: clampPercent(((lon + 180) / 360) * 100 + jitterX, 1.2, 97.5),
+        top: clampPercent(((90 - lat) / 180) * 100 + jitterY, 4, 94.5)
+      };
+    });
+
+    const groups = new Map<string, ProjectedTerritory[]>();
+    projected.forEach((item) => {
+      const bucket = groups.get(item.continent) ?? [];
+      bucket.push(item);
+      groups.set(item.continent, bucket);
+    });
 
     const orderedNames = world.kind === "historical"
       ? historicalContinentOrder.filter((name) => groups.has(name))
       : [];
-
     const remaining = [...groups.keys()].filter((name) => !orderedNames.includes(name)).sort((a, b) => a.localeCompare(b));
     const finalOrder = [...orderedNames, ...remaining];
-    const anchors = world.kind === "historical" ? historicalAnchors : fictionalAnchors;
 
-    const territories: TheaterTerritory[] = [];
     const labels: Array<{ continent: string; x: number; y: number }> = [];
+    const clouds: ContinentCloud[] = [];
 
-    finalOrder.forEach((continent, index) => {
-      const cells = (groups.get(continent) ?? []).slice().sort((a, b) => a.y - b.y || a.x - b.x);
-      const fallbackX = 8 + (index % 3) * 28;
-      const fallbackY = 12 + Math.floor(index / 3) * 22;
-      const anchor = anchors[continent] ?? { x: fallbackX, y: fallbackY, columns: 6 };
+    finalOrder.forEach((continent) => {
+      const list = groups.get(continent) ?? [];
+      if (list.length === 0) return;
 
-      labels.push({ continent, x: anchor.x, y: Math.max(6, anchor.y - 4) });
+      const xs = list.map((item) => item.left);
+      const ys = list.map((item) => item.top);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
 
-      cells.forEach((cell, cellIndex) => {
-        const col = cellIndex % anchor.columns;
-        const row = Math.floor(cellIndex / anchor.columns);
-        territories.push({
-          cell,
-          continent,
-          left: anchor.x + col * 2.9,
-          top: anchor.y + row * 3.3
-        });
+      labels.push({
+        continent,
+        x: (minX + maxX) / 2,
+        y: Math.max(5, minY - 5)
+      });
+
+      clouds.push({
+        continent,
+        left: clampPercent(minX - 3, 0, 100),
+        top: clampPercent(minY - 2.5, 0, 100),
+        width: clampPercent(maxX - minX + 6, 8, 40),
+        height: clampPercent(maxY - minY + 5.5, 6, 26)
       });
     });
 
-    return { territories, labels };
+    return { territories: projected, labels, clouds };
   }, [world]);
 
   const localEvents = useMemo(() => {
@@ -576,6 +625,29 @@ export default function App(): React.JSX.Element {
             <p className="map-subtitle">
               Théâtre mondial simplifié: couleur = contrôle, contour = niveau de tension/stabilité. Clique un territoire pour agir.
             </p>
+            <div className="lens-controls">
+              <button
+                type="button"
+                className={mapLens === "control" ? "active" : ""}
+                onClick={() => setMapLens("control")}
+              >
+                Vue contrôle
+              </button>
+              <button
+                type="button"
+                className={mapLens === "tension" ? "active" : ""}
+                onClick={() => setMapLens("tension")}
+              >
+                Vue tensions
+              </button>
+              <button
+                type="button"
+                className={mapLens === "stability" ? "active" : ""}
+                onClick={() => setMapLens("stability")}
+              >
+                Vue stabilité
+              </button>
+            </div>
 
             <div className="legend">
               <span className="legend-item stable">Calme</span>
@@ -585,8 +657,22 @@ export default function App(): React.JSX.Element {
 
             <div className="theater-map">
               <div className="theater-ocean-layer" />
+              <div className="theater-graticule" />
 
-              {theaterMap.labels.map((label) => (
+              {worldMapData.clouds.map((cloud) => (
+                <div
+                  key={cloud.continent}
+                  className="continent-cloud"
+                  style={{
+                    left: `${cloud.left}%`,
+                    top: `${cloud.top}%`,
+                    width: `${cloud.width}%`,
+                    height: `${cloud.height}%`
+                  }}
+                />
+              ))}
+
+              {worldMapData.labels.map((label) => (
                 <div
                   key={label.continent}
                   className="continent-label"
@@ -596,7 +682,7 @@ export default function App(): React.JSX.Element {
                 </div>
               ))}
 
-              {theaterMap.territories.map((territory) => {
+              {worldMapData.territories.map((territory) => {
                 const { cell } = territory;
                 const ownerColor = getOwnerColor(world, cell.owner);
                 const ownerLabel = factionShortName(factionName(world, cell.owner));
@@ -614,7 +700,11 @@ export default function App(): React.JSX.Element {
                       left: `${territory.left}%`,
                       top: `${territory.top}%`,
                       "--owner-color": ownerColor,
-                      "--owner-tint": ownerTint(ownerColor)
+                      "--owner-tint": territoryFillColor(world, cell, mapLens),
+                      "--shape-a": `${20 + Math.round(seededNoise(`${cell.id}:a`) * 22)}%`,
+                      "--shape-b": `${72 + Math.round(seededNoise(`${cell.id}:b`) * 20)}%`,
+                      "--shape-c": `${14 + Math.round(seededNoise(`${cell.id}:c`) * 20)}%`,
+                      "--shape-d": `${78 + Math.round(seededNoise(`${cell.id}:d`) * 17)}%`
                     } as React.CSSProperties}
                     title={`${cell.country} | ${territory.continent} | ${factionName(world, cell.owner)} | R${cell.richness} S${cell.stability} T${cell.tension}`}
                   >
