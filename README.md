@@ -3,18 +3,18 @@
 Genesis Engine est un moteur de simulation web orienté mondes vivants.
 Le projet vise une base modulaire, stable et extensible, sans dépendance cloud obligatoire.
 
-## État Actuel (MVP exécuté)
+## État Actuel (MVP+)
 
 - Landing + formulaire de création de monde.
 - Monde démo chargeable en un clic.
 - Carte 2D en grille (une case = territoire).
 - Sélection de territoire + panneau local détaillé.
-- Factions initiales générées selon type/complexité.
-- Tick de simulation déterministe avec influence des voisins.
-- Bascule de contrôle territorial (owner) sous tension.
+- Factions générées selon type/complexité et ownership initial.
+- Tick déterministe avec influence des voisins.
+- Bascule de contrôle territorial (owner) en situation de crise.
 - Feed d'événements (auto + manuel).
-- Backend TypeScript (Express) + frontend React/Vite.
-- IA non bloquante via `MockProvider`.
+- Narration IA locale via backend (`/world/briefing`).
+- Fallback automatique mock si IA désactivée ou indisponible.
 
 ## Stack
 
@@ -22,6 +22,7 @@ Le projet vise une base modulaire, stable et extensible, sans dépendance cloud 
 - Backend: Node.js + Express + TypeScript
 - Contrats partagés: package `@genesis/shared`
 - Données: mémoire serveur (pas de DB pour le MVP)
+- IA locale: Ollama (optionnel)
 
 ## Structure
 
@@ -46,6 +47,7 @@ genesis-engine/
         types.ts
         providers/
           mockProvider.ts
+          ollamaProvider.ts
   shared/
     src/
       contracts.ts
@@ -59,18 +61,38 @@ genesis-engine/
 - `POST /world/demo`
 - `POST /world/tick`
 - `POST /world/event`
+- `POST /world/briefing`
 - `GET /world/:worldId`
 
 ## Variables d'environnement
 
 Copier `.env.example` vers `.env`.
 
-Variables principales:
-
 - `SERVER_PORT=4000`
 - `VITE_API_BASE_URL=http://localhost:4000`
 - `AI_ENABLED=false`
-- `AI_PROVIDER=mock`
+- `AI_PROVIDER=mock` ou `ollama`
+- `OLLAMA_BASE_URL=http://localhost:11434`
+- `OLLAMA_CHAT_MODEL=qwen3:8b`
+- `OLLAMA_TIMEOUT_MS=12000`
+
+## Activer l'IA locale Ollama
+
+1. Lancer Ollama localement.
+2. Vérifier les modèles installés: `curl http://localhost:11434/api/tags`
+3. Mettre `.env`:
+
+```env
+AI_ENABLED=true
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_CHAT_MODEL=qwen3:8b
+```
+
+Notes:
+
+- Si le modèle configuré n'est pas disponible, le provider tente un modèle local disponible.
+- Si Ollama est indisponible, le jeu reste jouable avec narration mock.
 
 ## Lancer le projet
 
@@ -89,6 +111,6 @@ Genesis Engine reste distinct par sa modularité de rôles (`hero`, `faction`, `
 
 ## Suite recommandée
 
-1. Ajouter un mode d'action local `hero` (influence ciblée sur une case).
-2. Ajouter un mini dashboard rôle-dépendant sans surcharger l'UI.
-3. Préparer l'adaptateur `OllamaProvider` (optionnel, non bloquant).
+1. Ajouter des actions de rôle (`hero`, `faction`, `nation`, `gm`) qui influencent la simulation.
+2. Ajouter des objectifs narratifs (quêtes courts terme) pour renforcer le fun.
+3. Ajouter mémoire légère des faits marquants pour continuité IA.

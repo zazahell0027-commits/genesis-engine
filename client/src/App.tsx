@@ -8,7 +8,14 @@ import type {
   World,
   WorldCell
 } from "@genesis/shared";
-import { createDemoWorld, createWorld, tickWorld, triggerWorldEvent } from "./api";
+import {
+  createDemoWorld,
+  createWorld,
+  getWorldBriefing,
+  tickWorld,
+  triggerWorldEvent,
+  type WorldBriefing
+} from "./api";
 import "./styles.css";
 
 type ViewMode = "landing" | "world";
@@ -84,6 +91,8 @@ export default function App(): React.JSX.Element {
   const [world, setWorld] = useState<World | null>(null);
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [showJson, setShowJson] = useState(false);
+  const [briefing, setBriefing] = useState<WorldBriefing | null>(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<CreateFormState>({
@@ -109,11 +118,24 @@ export default function App(): React.JSX.Element {
     return summarizeWorld(world);
   }, [world]);
 
+  async function refreshBriefing(worldId: string): Promise<void> {
+    setBriefingLoading(true);
+    try {
+      const result = await getWorldBriefing(worldId);
+      setBriefing(result);
+    } catch {
+      setBriefing(null);
+    } finally {
+      setBriefingLoading(false);
+    }
+  }
+
   async function hydrateWorld(created: World): Promise<void> {
     setWorld(created);
     setSelectedCellId(created.cells[0]?.id ?? null);
     setViewMode("world");
     setShowJson(false);
+    await refreshBriefing(created.id);
   }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -158,6 +180,7 @@ export default function App(): React.JSX.Element {
     try {
       const updated = await tickWorld(world.id);
       setWorld(updated);
+      setBriefing((prev) => (prev ? { ...prev, tick: updated.tick } : null));
       if (selectedCellId && !updated.cells.some((cell) => cell.id === selectedCellId)) {
         setSelectedCellId(updated.cells[0]?.id ?? null);
       }
@@ -176,6 +199,7 @@ export default function App(): React.JSX.Element {
     try {
       const updated = await triggerWorldEvent(world.id);
       setWorld(updated);
+      await refreshBriefing(updated.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -274,6 +298,13 @@ export default function App(): React.JSX.Element {
         <div className="actions">
           <button type="button" onClick={handleTick} disabled={loading || !world}>Avancer le temps</button>
           <button type="button" onClick={handleTriggerEvent} disabled={loading || !world}>Déclencher un événement</button>
+          <button
+            type="button"
+            onClick={() => world && refreshBriefing(world.id)}
+            disabled={!world || loading || briefingLoading}
+          >
+            {briefingLoading ? "Narration..." : "Narration IA locale"}
+          </button>
           <button type="button" onClick={() => setShowJson((prev) => !prev)} disabled={!world}>
             {showJson ? "Masquer JSON" : "Afficher JSON"}
           </button>
@@ -373,6 +404,18 @@ export default function App(): React.JSX.Element {
                   <small>{evt.description}</small>
                 </article>
               ))}
+            </div>
+
+            <h3>Briefing IA</h3>
+            <div className="details-block">
+              {briefing ? (
+                <>
+                  <p>Provider: {briefing.provider}</p>
+                  <p>{briefing.narrative}</p>
+                </>
+              ) : (
+                <p>Génère une narration locale depuis le backend.</p>
+              )}
             </div>
           </aside>
         </section>

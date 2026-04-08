@@ -2,6 +2,12 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
+export type WorldBriefing = {
+  provider: string;
+  narrative: string;
+  tick: number;
+};
+
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message = await response.text();
@@ -47,4 +53,14 @@ export async function triggerWorldEvent(worldId: string, type?: EventType): Prom
   });
 
   return parseJson<World>(response);
+}
+
+export async function getWorldBriefing(worldId: string): Promise<WorldBriefing> {
+  const response = await fetch(`${API_BASE_URL}/world/briefing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId })
+  });
+
+  return parseJson<WorldBriefing>(response);
 }
