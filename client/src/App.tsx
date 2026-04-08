@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useMemo, useState } from "react";
 import type {
   CreateWorldInput,
   EventType,
@@ -20,14 +20,12 @@ import {
 import "./styles.css";
 
 type ViewMode = "landing" | "world";
-type MapMode = "grid" | "globe";
 
 type WorldSummary = {
   avgRichness: number;
   avgStability: number;
   avgTension: number;
   highTensionCount: number;
-  lowStabilityCount: number;
 };
 
 type CreateFormState = {
@@ -36,15 +34,6 @@ type CreateFormState = {
   complexity: PoliticalComplexity;
   role: RoleType;
   mapSize: MapSize;
-};
-
-type ProjectedPoint = {
-  cell: WorldCell;
-  x: number;
-  y: number;
-  z: number;
-  radius: number;
-  ownerColor: string;
 };
 
 type ContinentOverview = {
@@ -70,24 +59,28 @@ type TerritoryImpact = {
 };
 
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
+const historicalContinentOrder = [
+  "North America",
+  "South America",
+  "Europe",
+  "Africa",
+  "Asia",
+  "Oceania"
+];
 
-const GLOBE_SIZE = 560;
-const GLOBE_RADIUS = 230;
-const GLOBE_CENTER = GLOBE_SIZE / 2;
-
-function degToRad(value: number): number {
-  return (value * Math.PI) / 180;
+function ownerTint(ownerColor: string): string {
+  return `${ownerColor}26`;
 }
 
 function getCellClass(cell: WorldCell): string {
-  if (cell.tension > 65) return "cell danger";
-  if (cell.stability < 35) return "cell warning";
-  return "cell stable";
+  if (cell.tension > 65) return "danger";
+  if (cell.stability < 40) return "warning";
+  return "stable";
 }
 
 function getRiskLabel(cell: WorldCell): string {
   if (cell.tension > 65) return "Conflit";
-  if (cell.stability < 35) return "Fragile";
+  if (cell.stability < 40) return "Fragile";
   return "Calme";
 }
 
@@ -97,14 +90,12 @@ function summarizeWorld(world: World): WorldSummary {
   const stability = world.cells.reduce((sum, cell) => sum + cell.stability, 0);
   const tension = world.cells.reduce((sum, cell) => sum + cell.tension, 0);
   const highTensionCount = world.cells.filter((cell) => cell.tension > 65).length;
-  const lowStabilityCount = world.cells.filter((cell) => cell.stability < 35).length;
 
   return {
     avgRichness: Math.round(richness / count),
     avgStability: Math.round(stability / count),
     avgTension: Math.round(tension / count),
-    highTensionCount,
-    lowStabilityCount
+    highTensionCount
   };
 }
 
@@ -117,6 +108,15 @@ function conflictLabel(summary: WorldSummary): string {
 function factionName(world: World | null, ownerId: string): string {
   if (!world) return ownerId;
   return world.factions.find((faction) => faction.id === ownerId)?.name ?? ownerId;
+}
+
+function factionShortName(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .slice(0, 3)
+    .join("");
 }
 
 function eventTypeLabel(type: EventType): string {
@@ -144,46 +144,20 @@ function yearAtEvent(world: World, eventTick: number): number {
   return world.year - (world.tick - eventTick);
 }
 
-function buildLatPath(latDeg: number): string {
-  const lat = degToRad(latDeg);
-  const points: string[] = [];
-
-  for (let lon = -90; lon <= 90; lon += 6) {
-    const lambda = degToRad(lon);
-    const x = Math.cos(lat) * Math.sin(lambda);
-    const y = Math.sin(lat);
-    const sx = GLOBE_CENTER + GLOBE_RADIUS * x;
-    const sy = GLOBE_CENTER - GLOBE_RADIUS * y;
-    points.push(`${sx.toFixed(2)},${sy.toFixed(2)}`);
-  }
-
-  return points.join(" ");
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-function buildLonPath(lonDeg: number, rotationDeg: number): string {
-  const points: string[] = [];
-
-  for (let lat = -90; lat <= 90; lat += 5) {
-    const phi = degToRad(lat);
-    const lambda = degToRad(lonDeg - rotationDeg);
-
-    const x = Math.cos(phi) * Math.sin(lambda);
-    const y = Math.sin(phi);
-    const z = Math.cos(phi) * Math.cos(lambda);
-
-    if (z <= 0) continue;
-
-    const sx = GLOBE_CENTER + GLOBE_RADIUS * x;
-    const sy = GLOBE_CENTER - GLOBE_RADIUS * y;
-    points.push(`${sx.toFixed(2)},${sy.toFixed(2)}`);
-  }
-
-  return points.join(" ");
+function continentColumns(cellCount: number): number {
+  if (cellCount <= 8) return 4;
+  if (cellCount <= 16) return 5;
+  if (cellCount <= 24) return 6;
+  return 7;
 }
 
 export default function App(): React.JSX.Element {
   const [viewMode, setViewMode] = useState<ViewMode>("landing");
-  const [mapMode, setMapMode] = useState<MapMode>("grid");
   const [world, setWorld] = useState<World | null>(null);
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [showJson, setShowJson] = useState(false);
@@ -192,8 +166,6 @@ export default function App(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
-  const [globeRotation, setGlobeRotation] = useState(28);
-  const [globeAutoRotate, setGlobeAutoRotate] = useState(true);
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Demo",
     kind: "historical",
@@ -201,21 +173,6 @@ export default function App(): React.JSX.Element {
     role: "nation",
     mapSize: "medium"
   });
-
-  useEffect(() => {
-    if (!world || mapMode !== "globe" || !globeAutoRotate) return;
-
-    const timer = window.setInterval(() => {
-      setGlobeRotation((prev) => (prev + 0.6) % 360);
-    }, 85);
-
-    return () => window.clearInterval(timer);
-  }, [globeAutoRotate, mapMode, world]);
-
-  const gridStyle = useMemo(() => {
-    if (!world) return undefined;
-    return { gridTemplateColumns: `repeat(${world.width}, minmax(0, 1fr))` };
-  }, [world]);
 
   const selectedCell = useMemo(() => {
     if (!world || !selectedCellId) return null;
@@ -241,9 +198,32 @@ export default function App(): React.JSX.Element {
       .map(([name, cells]) => ({
         name,
         cells: cells.length,
-        avgTension: Math.round(cells.reduce((sum, cell) => sum + cell.tension, 0) / cells.length)
+        avgTension: average(cells.map((cell) => cell.tension))
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }, [world]);
+
+  const continentCells = useMemo(() => {
+    if (!world) return [] as Array<{ continent: string; cells: WorldCell[] }>;
+
+    const groups = new Map<string, WorldCell[]>();
+    for (const cell of world.cells) {
+      const bucket = groups.get(cell.continent) ?? [];
+      bucket.push(cell);
+      groups.set(cell.continent, bucket);
+    }
+
+    const orderedNames = world.kind === "historical"
+      ? historicalContinentOrder.filter((name) => groups.has(name))
+      : [];
+
+    const remaining = [...groups.keys()].filter((name) => !orderedNames.includes(name)).sort((a, b) => a.localeCompare(b));
+    const finalOrder = [...orderedNames, ...remaining];
+
+    return finalOrder.map((continent) => ({
+      continent,
+      cells: (groups.get(continent) ?? []).slice().sort((a, b) => a.y - b.y || a.x - b.x)
+    }));
   }, [world]);
 
   const localEvents = useMemo(() => {
@@ -253,50 +233,6 @@ export default function App(): React.JSX.Element {
       .filter((event) => event.targetCellId === selectedCell.id || event.factionId === selectedCell.owner)
       .slice(0, 5);
   }, [selectedCell, world]);
-
-  const globePoints = useMemo(() => {
-    if (!world) return [] as ProjectedPoint[];
-
-    const points: ProjectedPoint[] = [];
-
-    for (const cell of world.cells) {
-      const lon = world.width <= 1 ? 0 : (cell.x / (world.width - 1)) * 360 - 180;
-      const lat = world.height <= 1 ? 0 : 90 - (cell.y / (world.height - 1)) * 180;
-
-      const lambda = degToRad(lon - globeRotation);
-      const phi = degToRad(lat);
-
-      const x = Math.cos(phi) * Math.sin(lambda);
-      const y = Math.sin(phi);
-      const z = Math.cos(phi) * Math.cos(lambda);
-
-      if (z <= 0) continue;
-
-      points.push({
-        cell,
-        x: GLOBE_CENTER + GLOBE_RADIUS * x,
-        y: GLOBE_CENTER - GLOBE_RADIUS * y,
-        z,
-        radius: 2.6 + cell.richness / 42,
-        ownerColor: getOwnerColor(world, cell.owner)
-      });
-    }
-
-    return points.sort((a, b) => a.z - b.z);
-  }, [globeRotation, world]);
-
-  const isSelectedBehindGlobe = useMemo(() => {
-    if (!world || !selectedCell) return false;
-
-    const lon = world.width <= 1 ? 0 : (selectedCell.x / (world.width - 1)) * 360 - 180;
-    const lat = world.height <= 1 ? 0 : 90 - (selectedCell.y / (world.height - 1)) * 180;
-
-    const lambda = degToRad(lon - globeRotation);
-    const phi = degToRad(lat);
-    const z = Math.cos(phi) * Math.cos(lambda);
-
-    return z <= 0;
-  }, [globeRotation, selectedCell, world]);
 
   function snapshotCell(currentWorld: World, cellId: string): TerritorySnapshot | null {
     const cell = currentWorld.cells.find((item) => item.id === cellId);
@@ -328,7 +264,6 @@ export default function App(): React.JSX.Element {
     setWorld(created);
     setSelectedCellId(created.cells[0]?.id ?? null);
     setViewMode("world");
-    setMapMode("grid");
     setShowJson(false);
     await refreshBriefing(created.id);
   }
@@ -535,7 +470,7 @@ export default function App(): React.JSX.Element {
         <div>
           <h1>{world?.name}</h1>
           <p>
-            Annee {world?.year} | Tick {world?.tick} | {world?.kind === "historical" ? "Historique" : "Fictif"} | role {world?.role} | scenario {world?.scenarioId}
+            Année {world?.year} | Tick {world?.tick} | {world?.kind === "historical" ? "Historique" : "Fictif"} | rôle {world?.role} | scénario {world?.scenarioId}
           </p>
         </div>
         <div className="actions">
@@ -557,7 +492,7 @@ export default function App(): React.JSX.Element {
 
       {world && (
         <p className="action-points">
-          Points d'action: {world.actionPoints}/{world.maxActionPoints} (les actions territoriales en consomment 1, +1 a chaque tick)
+          Points d'action: {world.actionPoints}/{world.maxActionPoints} (1 action territoire = 1 point, +1 par tick)
         </p>
       )}
 
@@ -590,14 +525,11 @@ export default function App(): React.JSX.Element {
 
       {world && (
         <section className="world-layout">
-          <div>
-            <div className="map-header-row">
-              <h2>Carte des territoires</h2>
-              <div className="actions map-mode-actions">
-                <button type="button" className={mapMode === "grid" ? "active" : ""} onClick={() => setMapMode("grid")}>Grille</button>
-                <button type="button" className={mapMode === "globe" ? "active" : ""} onClick={() => setMapMode("globe")}>Globe</button>
-              </div>
-            </div>
+          <div className="map-section">
+            <h2>Carte Stratégique 2D</h2>
+            <p className="map-subtitle">
+              Couleur = contrôle faction, contour = risque (calme/fragile/conflit), chaque case = territoire interactif.
+            </p>
 
             <div className="legend">
               <span className="legend-item stable">Calme</span>
@@ -605,109 +537,56 @@ export default function App(): React.JSX.Element {
               <span className="legend-item danger">Conflit</span>
             </div>
 
-            {mapMode === "grid" ? (
-              <div className="grid" style={gridStyle}>
-                {world.cells.map((cell) => {
-                  const ownerColor = getOwnerColor(world, cell.owner);
+            <div className="continent-board">
+              {continentCells.map(({ continent, cells }) => {
+                const avgTension = average(cells.map((cell) => cell.tension));
+                const cols = continentColumns(cells.length);
 
-                  return (
-                    <button
-                      key={cell.id}
-                      type="button"
-                      onClick={() => setSelectedCellId(cell.id)}
-                      className={`${getCellClass(cell)}${selectedCellId === cell.id ? " selected" : ""}`}
-                      aria-label={`Cell ${cell.x},${cell.y}`}
-                      aria-pressed={selectedCellId === cell.id}
-                      style={{ "--owner-color": ownerColor } as React.CSSProperties}
-                      title={`${cell.country}, ${cell.continent} | R${cell.richness} S${cell.stability} T${cell.tension}`}
-                    >
-                      <div className="cell-owner-dot" />
-                      <div className="cell-coords">({cell.x}, {cell.y})</div>
-                      <small className="cell-country">{countryCode(cell.country)}</small>
-                      <small className="cell-continent">{cell.continent}</small>
-                      <small>R {cell.richness}</small>
-                      <small>S {cell.stability}</small>
-                      <small>T {cell.tension}</small>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="globe-panel">
-                <div className="globe-controls">
-                  <label>
-                    Rotation
-                    <input
-                      type="range"
-                      min="0"
-                      max="360"
-                      value={globeRotation}
-                      onChange={(event) => {
-                        setGlobeAutoRotate(false);
-                        setGlobeRotation(Number(event.target.value));
-                      }}
-                    />
-                  </label>
-                  <button type="button" onClick={() => setGlobeAutoRotate((prev) => !prev)}>
-                    {globeAutoRotate ? "Pause rotation" : "Auto-rotation"}
-                  </button>
-                </div>
+                return (
+                  <article key={continent} className="continent-block">
+                    <header className="continent-header">
+                      <h3>{continent}</h3>
+                      <span>{cells.length} territoires | tension moy. {avgTension}</span>
+                    </header>
 
-                <svg viewBox={`0 0 ${GLOBE_SIZE} ${GLOBE_SIZE}`} className="globe-svg" role="img" aria-label="Globe des territoires">
-                  <defs>
-                    <radialGradient id="globeFill" cx="35%" cy="32%" r="70%">
-                      <stop offset="0%" stopColor="#ffffff" stopOpacity="0.85" />
-                      <stop offset="38%" stopColor="#d9f0ff" stopOpacity="0.78" />
-                      <stop offset="78%" stopColor="#8cbad8" stopOpacity="0.86" />
-                      <stop offset="100%" stopColor="#4e6b8c" stopOpacity="0.92" />
-                    </radialGradient>
-                  </defs>
+                    <div className="territory-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+                      {cells.map((cell) => {
+                        const ownerColor = getOwnerColor(world, cell.owner);
+                        const ownerLabel = factionShortName(factionName(world, cell.owner));
+                        const statusClass = getCellClass(cell);
 
-                  <circle cx={GLOBE_CENTER} cy={GLOBE_CENTER} r={GLOBE_RADIUS} fill="url(#globeFill)" className="globe-sphere" />
-
-                  {[-60, -30, 0, 30, 60].map((lat) => (
-                    <polyline
-                      key={`lat-${lat}`}
-                      points={buildLatPath(lat)}
-                      fill="none"
-                      className="globe-graticule"
-                    />
-                  ))}
-
-                  {[-120, -60, 0, 60, 120].map((lon) => {
-                    const points = buildLonPath(lon, globeRotation);
-                    if (!points) return null;
-
-                    return (
-                      <polyline
-                        key={`lon-${lon}`}
-                        points={points}
-                        fill="none"
-                        className="globe-graticule"
-                      />
-                    );
-                  })}
-
-                  <circle cx={GLOBE_CENTER} cy={GLOBE_CENTER} r={GLOBE_RADIUS} className="globe-rim" fill="none" />
-
-                  {globePoints.map((point) => (
-                    <circle
-                      key={point.cell.id}
-                      cx={point.x}
-                      cy={point.y}
-                      r={selectedCellId === point.cell.id ? point.radius + 2 : point.radius}
-                      fill={point.ownerColor}
-                      className={selectedCellId === point.cell.id ? "globe-cell selected" : "globe-cell"}
-                      onClick={() => setSelectedCellId(point.cell.id)}
-                    />
-                  ))}
-                </svg>
-
-                {selectedCell && isSelectedBehindGlobe && (
-                  <p className="globe-hint">Le territoire sélectionné est sur la face cachée du globe.</p>
-                )}
-              </div>
-            )}
+                        return (
+                          <button
+                            key={cell.id}
+                            type="button"
+                            onClick={() => setSelectedCellId(cell.id)}
+                            className={`territory-card ${statusClass}${selectedCellId === cell.id ? " selected" : ""}`}
+                            aria-label={`${cell.country} ${cell.x},${cell.y}`}
+                            aria-pressed={selectedCellId === cell.id}
+                            style={{
+                              "--owner-color": ownerColor,
+                              "--owner-tint": ownerTint(ownerColor)
+                            } as React.CSSProperties}
+                            title={`${cell.country} | ${cell.continent} | ${factionName(world, cell.owner)} | R${cell.richness} S${cell.stability} T${cell.tension}`}
+                          >
+                            <div className="owner-strip" />
+                            <div className="territory-top">
+                              <strong>{countryCode(cell.country)}</strong>
+                              <small>({cell.x},{cell.y})</small>
+                            </div>
+                            <div className="territory-meta">
+                              <span>{ownerLabel}</span>
+                              <span>S{cell.stability}</span>
+                              <span>T{cell.tension}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
 
           <aside className="details-panel">
@@ -758,7 +637,7 @@ export default function App(): React.JSX.Element {
             <div className="details-block continent-list">
               {continentOverview.map((continent) => (
                 <p key={continent.name}>
-                  {continent.name} | {continent.cells} cases | tension moy. {continent.avgTension}
+                  {continent.name} | {continent.cells} territoires | tension moy. {continent.avgTension}
                 </p>
               ))}
             </div>
@@ -768,7 +647,7 @@ export default function App(): React.JSX.Element {
               {localEvents.length > 0 ? (
                 localEvents.map((evt) => (
                   <article key={evt.id} className="event-item local-event">
-                    <strong>{eventTypeLabel(evt.type)} - annee {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
+                    <strong>{eventTypeLabel(evt.type)} - année {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
                     <p>{evt.title}</p>
                     <small>{evt.description}</small>
                   </article>
@@ -791,7 +670,7 @@ export default function App(): React.JSX.Element {
             <div className="event-feed">
               {world.events.slice(0, 8).map((evt) => (
                 <article key={evt.id} className="event-item">
-                  <strong>{eventTypeLabel(evt.type)} - annee {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
+                  <strong>{eventTypeLabel(evt.type)} - année {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
                   <p>{evt.title}</p>
                   <small>{evt.description}</small>
                 </article>
