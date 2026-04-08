@@ -1,12 +1,23 @@
-﻿import React, { useState } from "react";
-import type { World } from "@genesis/shared";
+﻿import React, { useMemo, useState } from "react";
+import type { WorldCell, World } from "@genesis/shared";
 import { createWorld, tickWorld } from "./api";
 import "./styles.css";
+
+function getCellClass(cell: WorldCell): string {
+  if (cell.tension > 65) return "cell danger";
+  if (cell.stability < 35) return "cell warning";
+  return "cell stable";
+}
 
 export default function App(): React.JSX.Element {
   const [world, setWorld] = useState<World | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const gridStyle = useMemo(() => {
+    if (!world) return undefined;
+    return { gridTemplateColumns: `repeat(${world.width}, minmax(0, 1fr))` };
+  }, [world]);
 
   async function handleCreate(): Promise<void> {
     setLoading(true);
@@ -46,6 +57,23 @@ export default function App(): React.JSX.Element {
       </div>
 
       {error && <p className="error">Erreur: {error}</p>}
+
+      {world && (
+        <section>
+          <h2>Carte (grille simple)</h2>
+          <p>Tick: {world.tick} | Taille: {world.width}x{world.height}</p>
+          <div className="grid" style={gridStyle}>
+            {world.cells.map((cell) => (
+              <div key={cell.id} className={getCellClass(cell)}>
+                <span>{cell.owner.slice(0, 1).toUpperCase()}</span>
+                <small>R{cell.richness}</small>
+                <small>S{cell.stability}</small>
+                <small>T{cell.tension}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2>Monde (JSON)</h2>

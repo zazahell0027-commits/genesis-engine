@@ -9,7 +9,7 @@ body {
 }
 
 .container {
-  max-width: 960px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -32,6 +32,44 @@ button {
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.grid {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 20px;
+}
+
+.cell {
+  border-radius: 6px;
+  border: 1px solid #d0d5dd;
+  background: #f8fafc;
+  padding: 6px;
+  min-height: 54px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.cell span {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.cell.stable {
+  border-color: #84caff;
+  background: #eff8ff;
+}
+
+.cell.warning {
+  border-color: #f79009;
+  background: #fffaeb;
+}
+
+.cell.danger {
+  border-color: #f04438;
+  background: #fef3f2;
 }
 
 pre {
