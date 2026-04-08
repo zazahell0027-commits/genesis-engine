@@ -42,6 +42,19 @@ type ContinentOverview = {
   avgTension: number;
 };
 
+type ContinentAnchor = {
+  x: number;
+  y: number;
+  columns: number;
+};
+
+type TheaterTerritory = {
+  cell: WorldCell;
+  continent: string;
+  left: number;
+  top: number;
+};
+
 type TerritorySnapshot = {
   cellId: string;
   richness: number;
@@ -67,6 +80,20 @@ const historicalContinentOrder = [
   "Asia",
   "Oceania"
 ];
+const historicalAnchors: Record<string, ContinentAnchor> = {
+  "North America": { x: 8, y: 12, columns: 6 },
+  "South America": { x: 16, y: 50, columns: 5 },
+  Europe: { x: 44, y: 14, columns: 6 },
+  Africa: { x: 47, y: 36, columns: 6 },
+  Asia: { x: 62, y: 14, columns: 8 },
+  Oceania: { x: 78, y: 56, columns: 5 }
+};
+const fictionalAnchors: Record<string, ContinentAnchor> = {
+  Nordreach: { x: 20, y: 14, columns: 6 },
+  Verdelune: { x: 43, y: 20, columns: 7 },
+  Duskfall: { x: 66, y: 18, columns: 7 },
+  "Sables d'Astra": { x: 46, y: 52, columns: 7 }
+};
 
 function ownerTint(ownerColor: string): string {
   return `${ownerColor}26`;
@@ -149,13 +176,6 @@ function average(values: number[]): number {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-function continentColumns(cellCount: number): number {
-  if (cellCount <= 8) return 4;
-  if (cellCount <= 16) return 5;
-  if (cellCount <= 24) return 6;
-  return 7;
-}
-
 export default function App(): React.JSX.Element {
   const [viewMode, setViewMode] = useState<ViewMode>("landing");
   const [world, setWorld] = useState<World | null>(null);
@@ -203,8 +223,13 @@ export default function App(): React.JSX.Element {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [world]);
 
-  const continentCells = useMemo(() => {
-    if (!world) return [] as Array<{ continent: string; cells: WorldCell[] }>;
+  const theaterMap = useMemo(() => {
+    if (!world) {
+      return {
+        territories: [] as TheaterTerritory[],
+        labels: [] as Array<{ continent: string; x: number; y: number }>
+      };
+    }
 
     const groups = new Map<string, WorldCell[]>();
     for (const cell of world.cells) {
@@ -219,11 +244,32 @@ export default function App(): React.JSX.Element {
 
     const remaining = [...groups.keys()].filter((name) => !orderedNames.includes(name)).sort((a, b) => a.localeCompare(b));
     const finalOrder = [...orderedNames, ...remaining];
+    const anchors = world.kind === "historical" ? historicalAnchors : fictionalAnchors;
 
-    return finalOrder.map((continent) => ({
-      continent,
-      cells: (groups.get(continent) ?? []).slice().sort((a, b) => a.y - b.y || a.x - b.x)
-    }));
+    const territories: TheaterTerritory[] = [];
+    const labels: Array<{ continent: string; x: number; y: number }> = [];
+
+    finalOrder.forEach((continent, index) => {
+      const cells = (groups.get(continent) ?? []).slice().sort((a, b) => a.y - b.y || a.x - b.x);
+      const fallbackX = 8 + (index % 3) * 28;
+      const fallbackY = 12 + Math.floor(index / 3) * 22;
+      const anchor = anchors[continent] ?? { x: fallbackX, y: fallbackY, columns: 6 };
+
+      labels.push({ continent, x: anchor.x, y: Math.max(6, anchor.y - 4) });
+
+      cells.forEach((cell, cellIndex) => {
+        const col = cellIndex % anchor.columns;
+        const row = Math.floor(cellIndex / anchor.columns);
+        territories.push({
+          cell,
+          continent,
+          left: anchor.x + col * 2.9,
+          top: anchor.y + row * 3.3
+        });
+      });
+    });
+
+    return { territories, labels };
   }, [world]);
 
   const localEvents = useMemo(() => {
@@ -528,7 +574,7 @@ export default function App(): React.JSX.Element {
           <div className="map-section">
             <h2>Carte Stratégique 2D</h2>
             <p className="map-subtitle">
-              Couleur = contrôle faction, contour = risque (calme/fragile/conflit), chaque case = territoire interactif.
+              Théâtre mondial simplifié: couleur = contrôle, contour = niveau de tension/stabilité. Clique un territoire pour agir.
             </p>
 
             <div className="legend">
@@ -537,53 +583,45 @@ export default function App(): React.JSX.Element {
               <span className="legend-item danger">Conflit</span>
             </div>
 
-            <div className="continent-board">
-              {continentCells.map(({ continent, cells }) => {
-                const avgTension = average(cells.map((cell) => cell.tension));
-                const cols = continentColumns(cells.length);
+            <div className="theater-map">
+              <div className="theater-ocean-layer" />
+
+              {theaterMap.labels.map((label) => (
+                <div
+                  key={label.continent}
+                  className="continent-label"
+                  style={{ left: `${label.x}%`, top: `${label.y}%` }}
+                >
+                  {label.continent}
+                </div>
+              ))}
+
+              {theaterMap.territories.map((territory) => {
+                const { cell } = territory;
+                const ownerColor = getOwnerColor(world, cell.owner);
+                const ownerLabel = factionShortName(factionName(world, cell.owner));
+                const statusClass = getCellClass(cell);
 
                 return (
-                  <article key={continent} className="continent-block">
-                    <header className="continent-header">
-                      <h3>{continent}</h3>
-                      <span>{cells.length} territoires | tension moy. {avgTension}</span>
-                    </header>
-
-                    <div className="territory-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-                      {cells.map((cell) => {
-                        const ownerColor = getOwnerColor(world, cell.owner);
-                        const ownerLabel = factionShortName(factionName(world, cell.owner));
-                        const statusClass = getCellClass(cell);
-
-                        return (
-                          <button
-                            key={cell.id}
-                            type="button"
-                            onClick={() => setSelectedCellId(cell.id)}
-                            className={`territory-card ${statusClass}${selectedCellId === cell.id ? " selected" : ""}`}
-                            aria-label={`${cell.country} ${cell.x},${cell.y}`}
-                            aria-pressed={selectedCellId === cell.id}
-                            style={{
-                              "--owner-color": ownerColor,
-                              "--owner-tint": ownerTint(ownerColor)
-                            } as React.CSSProperties}
-                            title={`${cell.country} | ${cell.continent} | ${factionName(world, cell.owner)} | R${cell.richness} S${cell.stability} T${cell.tension}`}
-                          >
-                            <div className="owner-strip" />
-                            <div className="territory-top">
-                              <strong>{countryCode(cell.country)}</strong>
-                              <small>({cell.x},{cell.y})</small>
-                            </div>
-                            <div className="territory-meta">
-                              <span>{ownerLabel}</span>
-                              <span>S{cell.stability}</span>
-                              <span>T{cell.tension}</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </article>
+                  <button
+                    key={cell.id}
+                    type="button"
+                    onClick={() => setSelectedCellId(cell.id)}
+                    className={`territory-node ${statusClass}${selectedCellId === cell.id ? " selected" : ""}`}
+                    aria-label={`${cell.country} ${cell.x},${cell.y}`}
+                    aria-pressed={selectedCellId === cell.id}
+                    style={{
+                      left: `${territory.left}%`,
+                      top: `${territory.top}%`,
+                      "--owner-color": ownerColor,
+                      "--owner-tint": ownerTint(ownerColor)
+                    } as React.CSSProperties}
+                    title={`${cell.country} | ${territory.continent} | ${factionName(world, cell.owner)} | R${cell.richness} S${cell.stability} T${cell.tension}`}
+                  >
+                    <span className="node-code">{countryCode(cell.country)}</span>
+                    <span className="node-owner">{ownerLabel}</span>
+                    <span className="node-metrics">S{cell.stability} T{cell.tension}</span>
+                  </button>
                 );
               })}
             </div>

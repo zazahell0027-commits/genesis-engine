@@ -171,102 +171,80 @@ body {
   background: #fef3f2;
 }
 
-.continent-board {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.continent-block {
-  border: 1px solid #dbe4f0;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #f9fbff 0%, #f3f7fd 100%);
-  padding: 10px;
-}
-
-.continent-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.continent-header h3 {
-  margin: 0;
-  font-size: 15px;
-}
-
-.continent-header span {
-  font-size: 11px;
-  color: #475467;
-}
-
-.territory-grid {
-  display: grid;
-  gap: 6px;
-}
-
-.territory-card {
-  border: 1px solid #d0d5dd;
-  border-radius: 8px;
-  background: var(--owner-tint, #f8fafc);
-  min-height: 58px;
-  width: 100%;
-  text-align: left;
-  padding: 0;
-  cursor: pointer;
+.theater-map {
   position: relative;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
   overflow: hidden;
+  min-height: 560px;
+  background: radial-gradient(circle at 35% 22%, #316295 0%, #1e4f80 38%, #133865 72%, #0f2748 100%);
 }
 
-.owner-strip {
-  height: 6px;
-  background: var(--owner-color, #334155);
+.theater-ocean-layer {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 16% 24%, rgba(255, 255, 255, 0.14), transparent 45%),
+    radial-gradient(circle at 74% 30%, rgba(255, 255, 255, 0.12), transparent 45%),
+    radial-gradient(circle at 52% 82%, rgba(255, 255, 255, 0.1), transparent 50%);
+  pointer-events: none;
 }
 
-.territory-card.stable {
+.continent-label {
+  position: absolute;
+  font-size: 12px;
+  color: #e2ebf8;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-shadow: 0 2px 4px rgba(1, 12, 31, 0.7);
+  pointer-events: none;
+}
+
+.territory-node {
+  position: absolute;
+  width: 46px;
+  min-height: 42px;
+  border: 1px solid #d0d5dd;
+  border-radius: 7px;
+  background: var(--owner-tint, #f8fafc);
+  text-align: center;
+  padding: 4px 3px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+}
+
+.node-code {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.node-owner,
+.node-metrics {
+  font-size: 9px;
+  line-height: 1;
+}
+
+.territory-node.stable {
   border-color: #84caff;
 }
 
-.territory-card.warning {
+.territory-node.warning {
   border-color: #f79009;
 }
 
-.territory-card.danger {
+.territory-node.danger {
   border-color: #f04438;
-  box-shadow: inset 0 0 0 1px #f04438;
+  box-shadow: 0 0 0 1px #f04438, 0 2px 6px rgba(15, 23, 42, 0.2);
 }
 
-.territory-card.selected {
+.territory-node.selected {
   outline: 2px solid #155eef;
   outline-offset: 1px;
-}
-
-.territory-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 6px 2px;
-}
-
-.territory-top strong {
-  font-size: 12px;
-  color: #0f172a;
-}
-
-.territory-top small {
-  font-size: 10px;
-  color: #334155;
-}
-
-.territory-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 6px 6px;
-  font-size: 10px;
-  color: #1f2937;
 }
 
 .details-panel {
@@ -370,12 +348,6 @@ pre {
   color: #b42318;
 }
 
-@media (max-width: 1200px) {
-  .continent-board {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 980px) {
   .world-form {
     grid-template-columns: 1fr;
@@ -395,15 +367,12 @@ pre {
 }
 
 @media (max-width: 700px) {
-  .continent-board {
-    grid-template-columns: 1fr;
+  .theater-map {
+    min-height: 480px;
   }
 
-  .territory-grid {
-    gap: 5px;
-  }
-
-  .territory-card {
-    min-height: 54px;
+  .territory-node {
+    width: 42px;
+    min-height: 38px;
   }
 }
