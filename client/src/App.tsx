@@ -53,6 +53,22 @@ type ContinentOverview = {
   avgTension: number;
 };
 
+type TerritorySnapshot = {
+  cellId: string;
+  richness: number;
+  stability: number;
+  tension: number;
+  owner: string;
+  tick: number;
+};
+
+type TerritoryImpact = {
+  source: "tick" | "action";
+  actionLabel: string;
+  before: TerritorySnapshot;
+  after: TerritorySnapshot;
+};
+
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
 
 const GLOBE_SIZE = 560;
@@ -163,6 +179,7 @@ export default function App(): React.JSX.Element {
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
   const [globeRotation, setGlobeRotation] = useState(28);
   const [globeAutoRotate, setGlobeAutoRotate] = useState(true);
   const [form, setForm] = useState<CreateFormState>({
@@ -269,6 +286,20 @@ export default function App(): React.JSX.Element {
     return z <= 0;
   }, [globeRotation, selectedCell, world]);
 
+  function snapshotCell(currentWorld: World, cellId: string): TerritorySnapshot | null {
+    const cell = currentWorld.cells.find((item) => item.id === cellId);
+    if (!cell) return null;
+
+    return {
+      cellId: cell.id,
+      richness: cell.richness,
+      stability: cell.stability,
+      tension: cell.tension,
+      owner: cell.owner,
+      tick: currentWorld.tick
+    };
+  }
+
   async function refreshBriefing(worldId: string): Promise<void> {
     setBriefingLoading(true);
     try {
@@ -330,9 +361,21 @@ export default function App(): React.JSX.Element {
     setLoading(true);
     setError(null);
     try {
+      const beforeImpact = selectedCellId ? snapshotCell(world, selectedCellId) : null;
       const updated = await tickWorld(world.id);
       setWorld(updated);
       setBriefing((prev) => (prev ? { ...prev, tick: updated.tick } : null));
+      if (beforeImpact) {
+        const afterImpact = snapshotCell(updated, beforeImpact.cellId);
+        if (afterImpact) {
+          setLastImpact({
+            source: "tick",
+            actionLabel: "Tick",
+            before: beforeImpact,
+            after: afterImpact
+          });
+        }
+      }
       if (selectedCellId && !updated.cells.some((cell) => cell.id === selectedCellId)) {
         setSelectedCellId(updated.cells[0]?.id ?? null);
       }
@@ -365,8 +408,28 @@ export default function App(): React.JSX.Element {
     setLoading(true);
     setError(null);
     try {
+      const beforeImpact = snapshotCell(world, selectedCell.id);
       const updated = await applyPlayerAction(world.id, selectedCell.id, action);
       setWorld(updated);
+      if (beforeImpact) {
+        const afterImpact = snapshotCell(updated, beforeImpact.cellId);
+        if (afterImpact) {
+          const label = action === "stabilize"
+            ? "Stabiliser"
+            : action === "invest"
+              ? "Investir"
+              : action === "influence"
+                ? "Influencer"
+                : "Perturber";
+
+          setLastImpact({
+            source: "action",
+            actionLabel: label,
+            before: beforeImpact,
+            after: afterImpact
+          });
+        }
+      }
       await refreshBriefing(updated.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -644,6 +707,26 @@ export default function App(): React.JSX.Element {
               </div>
             ) : (
               <p>Sélectionne une zone de la carte.</p>
+            )}
+
+            {selectedCell && lastImpact && lastImpact.after.cellId === selectedCell.id && (
+              <div className="details-block impact-block">
+                <p><strong>Impact récent: {lastImpact.actionLabel}</strong></p>
+                <p className={lastImpact.after.richness - lastImpact.before.richness >= 0 ? "delta up" : "delta down"}>
+                  Richesse: {lastImpact.before.richness} {"->"} {lastImpact.after.richness}
+                </p>
+                <p className={lastImpact.after.stability - lastImpact.before.stability >= 0 ? "delta up" : "delta down"}>
+                  Stabilité: {lastImpact.before.stability} {"->"} {lastImpact.after.stability}
+                </p>
+                <p className={lastImpact.after.tension - lastImpact.before.tension <= 0 ? "delta up" : "delta down"}>
+                  Tensions: {lastImpact.before.tension} {"->"} {lastImpact.after.tension}
+                </p>
+                {lastImpact.before.owner !== lastImpact.after.owner && (
+                  <p className="delta down">
+                    Contrôle: {factionName(world, lastImpact.before.owner)} {"->"} {factionName(world, lastImpact.after.owner)}
+                  </p>
+                )}
+              </div>
             )}
 
             <h3>Continents</h3>

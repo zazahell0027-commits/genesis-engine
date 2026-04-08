@@ -392,6 +392,22 @@ body {
   margin: 5px 0;
 }
 
+.impact-block {
+  margin-top: 10px;
+}
+
+.delta {
+  font-weight: 600;
+}
+
+.delta.up {
+  color: #027a48;
+}
+
+.delta.down {
+  color: #b42318;
+}
+
 pre {
   background: #111827;
   color: #e5e7eb;
