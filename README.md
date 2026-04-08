@@ -8,6 +8,7 @@ Le projet vise une base modulaire, stable et extensible, sans dépendance cloud 
 - Landing + formulaire de création de monde.
 - Monde démo chargeable en un clic.
 - Carte 2D en grille (une case = territoire).
+- Vue globe interactive (rotation + sélection de territoires).
 - Sélection de territoire + panneau local détaillé.
 - Factions générées selon type/complexité et ownership initial.
 - Tick déterministe avec influence des voisins.

@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import type {
   CreateWorldInput,
   EventType,
@@ -20,6 +20,7 @@ import {
 import "./styles.css";
 
 type ViewMode = "landing" | "world";
+type MapMode = "grid" | "globe";
 
 type WorldSummary = {
   avgRichness: number;
@@ -37,7 +38,24 @@ type CreateFormState = {
   mapSize: MapSize;
 };
 
+type ProjectedPoint = {
+  cell: WorldCell;
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  ownerColor: string;
+};
+
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
+
+const GLOBE_SIZE = 560;
+const GLOBE_RADIUS = 230;
+const GLOBE_CENTER = GLOBE_SIZE / 2;
+
+function degToRad(value: number): number {
+  return (value * Math.PI) / 180;
+}
 
 function getCellClass(cell: WorldCell): string {
   if (cell.tension > 65) return "cell danger";
@@ -87,8 +105,51 @@ function eventTypeLabel(type: EventType): string {
   return "Découverte";
 }
 
+function getOwnerColor(world: World, ownerId: string): string {
+  const ownerIndex = world.factions.findIndex((faction) => faction.id === ownerId);
+  return ownerPalette[(ownerIndex + ownerPalette.length) % ownerPalette.length] ?? "#334155";
+}
+
+function buildLatPath(latDeg: number): string {
+  const lat = degToRad(latDeg);
+  const points: string[] = [];
+
+  for (let lon = -90; lon <= 90; lon += 6) {
+    const lambda = degToRad(lon);
+    const x = Math.cos(lat) * Math.sin(lambda);
+    const y = Math.sin(lat);
+    const sx = GLOBE_CENTER + GLOBE_RADIUS * x;
+    const sy = GLOBE_CENTER - GLOBE_RADIUS * y;
+    points.push(`${sx.toFixed(2)},${sy.toFixed(2)}`);
+  }
+
+  return points.join(" ");
+}
+
+function buildLonPath(lonDeg: number, rotationDeg: number): string {
+  const points: string[] = [];
+
+  for (let lat = -90; lat <= 90; lat += 5) {
+    const phi = degToRad(lat);
+    const lambda = degToRad(lonDeg - rotationDeg);
+
+    const x = Math.cos(phi) * Math.sin(lambda);
+    const y = Math.sin(phi);
+    const z = Math.cos(phi) * Math.cos(lambda);
+
+    if (z <= 0) continue;
+
+    const sx = GLOBE_CENTER + GLOBE_RADIUS * x;
+    const sy = GLOBE_CENTER - GLOBE_RADIUS * y;
+    points.push(`${sx.toFixed(2)},${sy.toFixed(2)}`);
+  }
+
+  return points.join(" ");
+}
+
 export default function App(): React.JSX.Element {
   const [viewMode, setViewMode] = useState<ViewMode>("landing");
+  const [mapMode, setMapMode] = useState<MapMode>("globe");
   const [world, setWorld] = useState<World | null>(null);
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [showJson, setShowJson] = useState(false);
@@ -96,6 +157,8 @@ export default function App(): React.JSX.Element {
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [globeRotation, setGlobeRotation] = useState(28);
+  const [globeAutoRotate, setGlobeAutoRotate] = useState(true);
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Demo",
     kind: "fictional",
@@ -103,6 +166,16 @@ export default function App(): React.JSX.Element {
     role: "hero",
     mapSize: "medium"
   });
+
+  useEffect(() => {
+    if (!world || mapMode !== "globe" || !globeAutoRotate) return;
+
+    const timer = window.setInterval(() => {
+      setGlobeRotation((prev) => (prev + 0.6) % 360);
+    }, 85);
+
+    return () => window.clearInterval(timer);
+  }, [globeAutoRotate, mapMode, world]);
 
   const gridStyle = useMemo(() => {
     if (!world) return undefined;
@@ -118,6 +191,50 @@ export default function App(): React.JSX.Element {
     if (!world) return null;
     return summarizeWorld(world);
   }, [world]);
+
+  const globePoints = useMemo(() => {
+    if (!world) return [] as ProjectedPoint[];
+
+    const points: ProjectedPoint[] = [];
+
+    for (const cell of world.cells) {
+      const lon = world.width <= 1 ? 0 : (cell.x / (world.width - 1)) * 360 - 180;
+      const lat = world.height <= 1 ? 0 : 90 - (cell.y / (world.height - 1)) * 180;
+
+      const lambda = degToRad(lon - globeRotation);
+      const phi = degToRad(lat);
+
+      const x = Math.cos(phi) * Math.sin(lambda);
+      const y = Math.sin(phi);
+      const z = Math.cos(phi) * Math.cos(lambda);
+
+      if (z <= 0) continue;
+
+      points.push({
+        cell,
+        x: GLOBE_CENTER + GLOBE_RADIUS * x,
+        y: GLOBE_CENTER - GLOBE_RADIUS * y,
+        z,
+        radius: 2.6 + cell.richness / 42,
+        ownerColor: getOwnerColor(world, cell.owner)
+      });
+    }
+
+    return points.sort((a, b) => a.z - b.z);
+  }, [globeRotation, world]);
+
+  const isSelectedBehindGlobe = useMemo(() => {
+    if (!world || !selectedCell) return false;
+
+    const lon = world.width <= 1 ? 0 : (selectedCell.x / (world.width - 1)) * 360 - 180;
+    const lat = world.height <= 1 ? 0 : 90 - (selectedCell.y / (world.height - 1)) * 180;
+
+    const lambda = degToRad(lon - globeRotation);
+    const phi = degToRad(lat);
+    const z = Math.cos(phi) * Math.cos(lambda);
+
+    return z <= 0;
+  }, [globeRotation, selectedCell, world]);
 
   async function refreshBriefing(worldId: string): Promise<void> {
     setBriefingLoading(true);
@@ -135,6 +252,7 @@ export default function App(): React.JSX.Element {
     setWorld(created);
     setSelectedCellId(created.cells[0]?.id ?? null);
     setViewMode("world");
+    setMapMode("globe");
     setShowJson(false);
     await refreshBriefing(created.id);
   }
@@ -355,37 +473,120 @@ export default function App(): React.JSX.Element {
       {world && (
         <section className="world-layout">
           <div>
-            <h2>Carte 2D (territoires)</h2>
+            <div className="map-header-row">
+              <h2>Carte des territoires</h2>
+              <div className="actions map-mode-actions">
+                <button type="button" className={mapMode === "globe" ? "active" : ""} onClick={() => setMapMode("globe")}>Globe</button>
+                <button type="button" className={mapMode === "grid" ? "active" : ""} onClick={() => setMapMode("grid")}>Grille</button>
+              </div>
+            </div>
+
             <div className="legend">
               <span className="legend-item stable">Calme</span>
               <span className="legend-item warning">Fragile</span>
               <span className="legend-item danger">Conflit</span>
             </div>
 
-            <div className="grid" style={gridStyle}>
-              {world.cells.map((cell) => {
-                const ownerIndex = world.factions.findIndex((faction) => faction.id === cell.owner);
-                const ownerColor = ownerPalette[(ownerIndex + ownerPalette.length) % ownerPalette.length] ?? "#334155";
+            {mapMode === "grid" ? (
+              <div className="grid" style={gridStyle}>
+                {world.cells.map((cell) => {
+                  const ownerColor = getOwnerColor(world, cell.owner);
 
-                return (
-                  <button
-                    key={cell.id}
-                    type="button"
-                    onClick={() => setSelectedCellId(cell.id)}
-                    className={`${getCellClass(cell)}${selectedCellId === cell.id ? " selected" : ""}`}
-                    aria-label={`Cell ${cell.x},${cell.y}`}
-                    aria-pressed={selectedCellId === cell.id}
-                    style={{ "--owner-color": ownerColor } as React.CSSProperties}
-                  >
-                    <div className="cell-owner-dot" />
-                    <div className="cell-coords">({cell.x}, {cell.y})</div>
-                    <small>R {cell.richness}</small>
-                    <small>S {cell.stability}</small>
-                    <small>T {cell.tension}</small>
+                  return (
+                    <button
+                      key={cell.id}
+                      type="button"
+                      onClick={() => setSelectedCellId(cell.id)}
+                      className={`${getCellClass(cell)}${selectedCellId === cell.id ? " selected" : ""}`}
+                      aria-label={`Cell ${cell.x},${cell.y}`}
+                      aria-pressed={selectedCellId === cell.id}
+                      style={{ "--owner-color": ownerColor } as React.CSSProperties}
+                    >
+                      <div className="cell-owner-dot" />
+                      <div className="cell-coords">({cell.x}, {cell.y})</div>
+                      <small>R {cell.richness}</small>
+                      <small>S {cell.stability}</small>
+                      <small>T {cell.tension}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="globe-panel">
+                <div className="globe-controls">
+                  <label>
+                    Rotation
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      value={globeRotation}
+                      onChange={(event) => {
+                        setGlobeAutoRotate(false);
+                        setGlobeRotation(Number(event.target.value));
+                      }}
+                    />
+                  </label>
+                  <button type="button" onClick={() => setGlobeAutoRotate((prev) => !prev)}>
+                    {globeAutoRotate ? "Pause rotation" : "Auto-rotation"}
                   </button>
-                );
-              })}
-            </div>
+                </div>
+
+                <svg viewBox={`0 0 ${GLOBE_SIZE} ${GLOBE_SIZE}`} className="globe-svg" role="img" aria-label="Globe des territoires">
+                  <defs>
+                    <radialGradient id="globeFill" cx="35%" cy="32%" r="70%">
+                      <stop offset="0%" stopColor="#ffffff" stopOpacity="0.85" />
+                      <stop offset="38%" stopColor="#d9f0ff" stopOpacity="0.78" />
+                      <stop offset="78%" stopColor="#8cbad8" stopOpacity="0.86" />
+                      <stop offset="100%" stopColor="#4e6b8c" stopOpacity="0.92" />
+                    </radialGradient>
+                  </defs>
+
+                  <circle cx={GLOBE_CENTER} cy={GLOBE_CENTER} r={GLOBE_RADIUS} fill="url(#globeFill)" className="globe-sphere" />
+
+                  {[-60, -30, 0, 30, 60].map((lat) => (
+                    <polyline
+                      key={`lat-${lat}`}
+                      points={buildLatPath(lat)}
+                      fill="none"
+                      className="globe-graticule"
+                    />
+                  ))}
+
+                  {[-120, -60, 0, 60, 120].map((lon) => {
+                    const points = buildLonPath(lon, globeRotation);
+                    if (!points) return null;
+
+                    return (
+                      <polyline
+                        key={`lon-${lon}`}
+                        points={points}
+                        fill="none"
+                        className="globe-graticule"
+                      />
+                    );
+                  })}
+
+                  <circle cx={GLOBE_CENTER} cy={GLOBE_CENTER} r={GLOBE_RADIUS} className="globe-rim" fill="none" />
+
+                  {globePoints.map((point) => (
+                    <circle
+                      key={point.cell.id}
+                      cx={point.x}
+                      cy={point.y}
+                      r={selectedCellId === point.cell.id ? point.radius + 2 : point.radius}
+                      fill={point.ownerColor}
+                      className={selectedCellId === point.cell.id ? "globe-cell selected" : "globe-cell"}
+                      onClick={() => setSelectedCellId(point.cell.id)}
+                    />
+                  ))}
+                </svg>
+
+                {selectedCell && isSelectedBehindGlobe && (
+                  <p className="globe-hint">Le territoire sélectionné est actuellement sur la face cachée du globe.</p>
+                )}
+              </div>
+            )}
           </div>
 
           <aside className="details-panel">
@@ -411,7 +612,7 @@ export default function App(): React.JSX.Element {
                 </div>
               </div>
             ) : (
-              <p>Sélectionne une case de la grille.</p>
+              <p>Sélectionne une zone de la carte.</p>
             )}
 
             <h3>Factions</h3>
