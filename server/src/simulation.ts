@@ -38,6 +38,13 @@ function getNeighbors(snapshot: Map<string, WorldCell>, x: number, y: number): W
     .filter((cell): cell is WorldCell => Boolean(cell));
 }
 
+function getWorldNeighbors(world: World, x: number, y: number): WorldCell[] {
+  const ids = [`${x - 1}-${y}`, `${x + 1}-${y}`, `${x}-${y - 1}`, `${x}-${y + 1}`];
+  return ids
+    .map((id) => world.cells.find((cell) => cell.id === id))
+    .filter((cell): cell is WorldCell => Boolean(cell));
+}
+
 function trendToward(value: number, target: number): number {
   if (value < target) return 1;
   if (value > target) return -1;
@@ -56,8 +63,8 @@ function toEventTypeByIndex(index: number): EventType {
 
 function pushEvent(world: World, event: WorldEvent): void {
   world.events.unshift(event);
-  if (world.events.length > 40) {
-    world.events = world.events.slice(0, 40);
+  if (world.events.length > 50) {
+    world.events = world.events.slice(0, 50);
   }
 }
 
@@ -191,33 +198,60 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
     return world;
   }
 
-  if (action === "stabilize") {
+  const normalizedAction: PlayerActionType = action === "incite" ? "disrupt" : action;
+
+  if (normalizedAction === "stabilize") {
     target.stability = clamp(target.stability + 9);
     target.tension = clamp(target.tension - 6);
 
     pushEvent(world, createEvent(world, "alliance", {
       title: "Local Stabilization",
-      description: `Une action de stabilisation renforce (${target.x}, ${target.y}).`,
+      description: `La zone (${target.x}, ${target.y}) se stabilise après intervention.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
-  } else if (action === "invest") {
+  } else if (normalizedAction === "invest") {
     target.richness = clamp(target.richness + 10);
     target.stability = clamp(target.stability + 2);
+    target.tension = clamp(target.tension + 1);
 
     pushEvent(world, createEvent(world, "discovery", {
       title: "Economic Investment",
-      description: `Un investissement accélère le développement de (${target.x}, ${target.y}).`,
+      description: `Un investissement booste l'économie locale à (${target.x}, ${target.y}).`,
       targetCellId: target.id,
       factionId: target.owner
     }));
+  } else if (normalizedAction === "influence") {
+    const neighbors = getWorldNeighbors(world, target.x, target.y);
+    const candidate = [...neighbors].sort((a, b) => b.stability - a.stability)[0];
+
+    if (candidate && candidate.owner !== target.owner) {
+      target.owner = candidate.owner;
+      target.stability = clamp(target.stability - 2);
+      target.tension = clamp(target.tension + 5);
+
+      pushEvent(world, createEvent(world, "expansion", {
+        title: "Influence Shift",
+        description: `L'influence locale fait basculer (${target.x}, ${target.y}) vers ${factionName(world, candidate.owner)}.`,
+        targetCellId: target.id,
+        factionId: candidate.owner
+      }));
+    } else {
+      target.stability = clamp(target.stability + 3);
+      pushEvent(world, createEvent(world, "alliance", {
+        title: "Influence Attempt",
+        description: `Tentative d'influence à (${target.x}, ${target.y}) sans changement de contrôle.`,
+        targetCellId: target.id,
+        factionId: target.owner
+      }));
+    }
   } else {
-    target.tension = clamp(target.tension + 12);
-    target.stability = clamp(target.stability - 6);
+    target.tension = clamp(target.tension + 13);
+    target.stability = clamp(target.stability - 7);
 
     pushEvent(world, createEvent(world, "troubles", {
       title: "Provocation",
-      description: `Une provocation enflamme la zone (${target.x}, ${target.y}).`,
+      description: `Une perturbation enflamme la zone (${target.x}, ${target.y}).`,
       targetCellId: target.id,
       factionId: target.owner
     }));

@@ -27,6 +27,9 @@ const fictionalNames = [
   "Aurora Syndicate"
 ];
 
+const historicalContinents = ["Occident", "Steppe Centrale", "Orient", "Sud Imperial"];
+const fictionalContinents = ["Nordreach", "Verdelune", "Duskfall", "Sables d'Astra"];
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -111,13 +114,36 @@ function ownerFromCenters(x: number, y: number, centers: FactionCenter[]): strin
   return winner;
 }
 
-function createCell(x: number, y: number, owner: string, worldId: string): WorldCell {
+function assignContinent(x: number, y: number, width: number, height: number, kind: WorldKind): string {
+  const names = kind === "historical" ? historicalContinents : fictionalContinents;
+
+  const northBand = Math.floor(height * 0.28);
+  const southBand = Math.floor(height * 0.72);
+  const westBand = Math.floor(width * 0.45);
+
+  if (y <= northBand) {
+    return names[0];
+  }
+
+  if (y >= southBand) {
+    return names[3];
+  }
+
+  if (x <= westBand) {
+    return names[1];
+  }
+
+  return names[2];
+}
+
+function createCell(x: number, y: number, owner: string, continent: string, worldId: string): WorldCell {
   const seed = `${worldId}:${x}:${y}`;
   return {
     id: `${x}-${y}`,
     x,
     y,
     owner,
+    continent,
     richness: valueBetween(`${seed}:richness`, 38, 68),
     stability: valueBetween(`${seed}:stability`, 45, 75),
     tension: valueBetween(`${seed}:tension`, 18, 48)
@@ -149,7 +175,8 @@ export function createWorld(input: CreateWorldInput): World {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const owner = ownerFromCenters(x, y, centers);
-      cells.push(createCell(x, y, owner, id));
+      const continent = assignContinent(x, y, width, height, kind);
+      cells.push(createCell(x, y, owner, continent, id));
     }
   }
 

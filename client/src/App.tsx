@@ -47,6 +47,12 @@ type ProjectedPoint = {
   ownerColor: string;
 };
 
+type ContinentOverview = {
+  name: string;
+  cells: number;
+  avgTension: number;
+};
+
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
 
 const GLOBE_SIZE = 560;
@@ -149,7 +155,7 @@ function buildLonPath(lonDeg: number, rotationDeg: number): string {
 
 export default function App(): React.JSX.Element {
   const [viewMode, setViewMode] = useState<ViewMode>("landing");
-  const [mapMode, setMapMode] = useState<MapMode>("globe");
+  const [mapMode, setMapMode] = useState<MapMode>("grid");
   const [world, setWorld] = useState<World | null>(null);
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [showJson, setShowJson] = useState(false);
@@ -191,6 +197,33 @@ export default function App(): React.JSX.Element {
     if (!world) return null;
     return summarizeWorld(world);
   }, [world]);
+
+  const continentOverview = useMemo(() => {
+    if (!world) return [] as ContinentOverview[];
+
+    const map = new Map<string, WorldCell[]>();
+    for (const cell of world.cells) {
+      const list = map.get(cell.continent) ?? [];
+      list.push(cell);
+      map.set(cell.continent, list);
+    }
+
+    return [...map.entries()]
+      .map(([name, cells]) => ({
+        name,
+        cells: cells.length,
+        avgTension: Math.round(cells.reduce((sum, cell) => sum + cell.tension, 0) / cells.length)
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [world]);
+
+  const localEvents = useMemo(() => {
+    if (!world || !selectedCell) return [];
+
+    return world.events
+      .filter((event) => event.targetCellId === selectedCell.id || event.factionId === selectedCell.owner)
+      .slice(0, 5);
+  }, [selectedCell, world]);
 
   const globePoints = useMemo(() => {
     if (!world) return [] as ProjectedPoint[];
@@ -252,7 +285,7 @@ export default function App(): React.JSX.Element {
     setWorld(created);
     setSelectedCellId(created.cells[0]?.id ?? null);
     setViewMode("world");
-    setMapMode("globe");
+    setMapMode("grid");
     setShowJson(false);
     await refreshBriefing(created.id);
   }
@@ -326,7 +359,7 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  async function handlePlayerAction(action: "stabilize" | "invest" | "incite"): Promise<void> {
+  async function handlePlayerAction(action: "stabilize" | "invest" | "influence" | "disrupt"): Promise<void> {
     if (!world || !selectedCell) return;
 
     setLoading(true);
@@ -476,8 +509,8 @@ export default function App(): React.JSX.Element {
             <div className="map-header-row">
               <h2>Carte des territoires</h2>
               <div className="actions map-mode-actions">
-                <button type="button" className={mapMode === "globe" ? "active" : ""} onClick={() => setMapMode("globe")}>Globe</button>
                 <button type="button" className={mapMode === "grid" ? "active" : ""} onClick={() => setMapMode("grid")}>Grille</button>
+                <button type="button" className={mapMode === "globe" ? "active" : ""} onClick={() => setMapMode("globe")}>Globe</button>
               </div>
             </div>
 
@@ -501,9 +534,11 @@ export default function App(): React.JSX.Element {
                       aria-label={`Cell ${cell.x},${cell.y}`}
                       aria-pressed={selectedCellId === cell.id}
                       style={{ "--owner-color": ownerColor } as React.CSSProperties}
+                      title={`${cell.continent} | R${cell.richness} S${cell.stability} T${cell.tension}`}
                     >
                       <div className="cell-owner-dot" />
                       <div className="cell-coords">({cell.x}, {cell.y})</div>
+                      <small className="cell-continent">{cell.continent}</small>
                       <small>R {cell.richness}</small>
                       <small>S {cell.stability}</small>
                       <small>T {cell.tension}</small>
@@ -583,7 +618,7 @@ export default function App(): React.JSX.Element {
                 </svg>
 
                 {selectedCell && isSelectedBehindGlobe && (
-                  <p className="globe-hint">Le territoire sélectionné est actuellement sur la face cachée du globe.</p>
+                  <p className="globe-hint">Le territoire sélectionné est sur la face cachée du globe.</p>
                 )}
               </div>
             )}
@@ -594,26 +629,46 @@ export default function App(): React.JSX.Element {
             {selectedCell ? (
               <div className="details-block">
                 <p>Coordonnées: ({selectedCell.x}, {selectedCell.y})</p>
+                <p>Continent: {selectedCell.continent}</p>
                 <p>Faction: {factionName(world, selectedCell.owner)}</p>
                 <p>Risque: {getRiskLabel(selectedCell)}</p>
                 <p>Richesse: {selectedCell.richness}</p>
                 <p>Stabilité: {selectedCell.stability}</p>
                 <p>Tensions: {selectedCell.tension}</p>
                 <div className="actions territory-actions">
-                  <button type="button" onClick={() => handlePlayerAction("stabilize")} disabled={loading}>
-                    Stabiliser
-                  </button>
-                  <button type="button" onClick={() => handlePlayerAction("invest")} disabled={loading}>
-                    Investir
-                  </button>
-                  <button type="button" onClick={() => handlePlayerAction("incite")} disabled={loading}>
-                    Provoquer
-                  </button>
+                  <button type="button" onClick={() => handlePlayerAction("stabilize")} disabled={loading}>Stabiliser</button>
+                  <button type="button" onClick={() => handlePlayerAction("invest")} disabled={loading}>Investir</button>
+                  <button type="button" onClick={() => handlePlayerAction("influence")} disabled={loading}>Influencer</button>
+                  <button type="button" onClick={() => handlePlayerAction("disrupt")} disabled={loading}>Perturber</button>
                 </div>
               </div>
             ) : (
               <p>Sélectionne une zone de la carte.</p>
             )}
+
+            <h3>Continents</h3>
+            <div className="details-block continent-list">
+              {continentOverview.map((continent) => (
+                <p key={continent.name}>
+                  {continent.name} | {continent.cells} cases | tension moy. {continent.avgTension}
+                </p>
+              ))}
+            </div>
+
+            <h3>Événements locaux</h3>
+            <div className="event-feed">
+              {localEvents.length > 0 ? (
+                localEvents.map((evt) => (
+                  <article key={evt.id} className="event-item local-event">
+                    <strong>{eventTypeLabel(evt.type)} - tick {evt.tick}</strong>
+                    <p>{evt.title}</p>
+                    <small>{evt.description}</small>
+                  </article>
+                ))
+              ) : (
+                <p className="event-empty">Aucun événement local pour ce territoire.</p>
+              )}
+            </div>
 
             <h3>Factions</h3>
             <div className="details-block">
@@ -624,7 +679,7 @@ export default function App(): React.JSX.Element {
               ))}
             </div>
 
-            <h3>Événements récents</h3>
+            <h3>Événements globaux récents</h3>
             <div className="event-feed">
               {world.events.slice(0, 8).map((evt) => (
                 <article key={evt.id} className="event-item">

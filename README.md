@@ -9,12 +9,13 @@ Le projet vise une base modulaire, stable et extensible, sans dépendance cloud 
 - Monde démo chargeable en un clic.
 - Carte 2D en grille (une case = territoire).
 - Vue globe interactive (rotation + sélection de territoires).
+- Continents générés et visibles sur la carte de territoires.
 - Sélection de territoire + panneau local détaillé.
 - Factions générées selon type/complexité et ownership initial.
 - Tick déterministe avec influence des voisins.
 - Bascule de contrôle territorial (owner) en situation de crise.
 - Feed d'événements (auto + manuel).
-- Actions locales joueur sur territoire (`stabilize`, `invest`, `incite`).
+- Actions locales joueur sur territoire (`stabilize`, `invest`, `influence`, `disrupt`).
 - Narration IA locale via backend (`/world/briefing`).
 - Fallback automatique mock si IA désactivée ou indisponible.
 

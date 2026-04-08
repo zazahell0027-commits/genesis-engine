@@ -96,7 +96,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       return;
     }
 
-    if (!["stabilize", "invest", "incite"].includes(action)) {
+    if (!["stabilize", "invest", "influence", "disrupt", "incite"].includes(action)) {
       res.status(400).json({ error: "Invalid action" });
       return;
     }

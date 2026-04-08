@@ -88,6 +88,11 @@ body {
   font-size: 12px;
 }
 
+.territory-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .world-header {
   display: flex;
   justify-content: space-between;
@@ -268,6 +273,11 @@ body {
   color: #334155;
 }
 
+.cell-continent {
+  color: #64748b;
+  font-style: italic;
+}
+
 .cell-coords {
   font-weight: 700;
   font-size: 12px;
@@ -365,6 +375,21 @@ body {
 
 .event-item small {
   color: #475467;
+}
+
+.local-event {
+  border-color: #bfd5ff;
+  background: #eff4ff;
+}
+
+.event-empty {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.continent-list p {
+  margin: 5px 0;
 }
 
 pre {
