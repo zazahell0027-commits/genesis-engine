@@ -467,7 +467,7 @@ export default function App(): React.JSX.Element {
           <div className="map-section">
             <h2>Carte Stratégique 2D</h2>
             <p className="map-subtitle">
-              Théâtre mondial simplifié: couleur = contrôle, contour = niveau de tension/stabilité. Clique un territoire pour agir.
+              Projection mondiale pays-réels: couleur = contrôle/tension/stabilité selon la vue active. Clique un pays pour agir sur une zone liée.
             </p>
             <div className="lens-controls">
               <button

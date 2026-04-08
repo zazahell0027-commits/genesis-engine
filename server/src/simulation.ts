@@ -1,4 +1,5 @@
 ﻿import type { EventType, Faction, PlayerActionType, World, WorldCell, WorldEvent } from "@genesis/shared";
+import { getHistoricalSignalsForYear } from "./data/historicalSignals.js";
 
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));
@@ -136,94 +137,63 @@ export function canAffordAction(world: World, action: PlayerActionType): boolean
   return world.actionPoints >= actionCost(action);
 }
 
+function pickHistoricalTargets(world: World, cells: WorldCell[], count: number, salt: string): WorldCell[] {
+  if (cells.length <= count) return [...cells];
+
+  const selected: WorldCell[] = [];
+  const used = new Set<string>();
+  let offset = 0;
+
+  while (selected.length < count && used.size < cells.length) {
+    const index = deterministicIndex(world, `${salt}-${offset}`, cells.length);
+    const candidate = cells[index];
+    if (candidate && !used.has(candidate.id)) {
+      used.add(candidate.id);
+      selected.push(candidate);
+    }
+    offset += 1;
+  }
+
+  return selected;
+}
+
 function applyHistoricalMilestone(world: World): boolean {
   if (world.kind !== "historical") return false;
 
-  if (world.year === 1912) {
-    const target = pickTargetCell(world, "highest_tension");
-    target.tension = clamp(target.tension + 10);
-    target.stability = clamp(target.stability - 5);
+  const signals = getHistoricalSignalsForYear(world.year);
+  if (signals.length === 0) return false;
 
-    pushEvent(world, createEvent(world, "troubles", {
-      title: "Balkan Shockwave",
-      description: `Regional unrest spreads around ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-    return true;
-  }
+  for (const signal of signals) {
+    const pool = world.cells.filter((cell) => signal.continents.includes(cell.continent));
+    if (pool.length === 0) continue;
 
-  if (world.year === 1914) {
-    const leader = strongestFaction(world);
-    const borderCells = world.cells.filter(
-      (cell) => cell.x === 0 || cell.y === 0 || cell.x === world.width - 1 || cell.y === world.height - 1
-    );
-    const target = borderCells[deterministicIndex(world, "milestone-1914", borderCells.length)] ?? world.cells[0];
+    const count = Math.max(1, Math.floor(pool.length * signal.coverage));
+    const impacted = pickHistoricalTargets(world, pool, count, signal.title);
 
-    if (leader) {
-      target.owner = leader.id;
-      target.stability = clamp(target.stability - 6);
-      target.tension = clamp(target.tension + 9);
+    for (const cell of impacted) {
+      cell.tension = clamp(cell.tension + signal.tensionDelta);
+      cell.stability = clamp(cell.stability + signal.stabilityDelta);
+      cell.richness = clamp(cell.richness + signal.richnessDelta);
     }
 
-    pushEvent(world, createEvent(world, "expansion", {
-      title: "Great War Fronts",
-      description: `${factionName(world, leader?.id)} opens a new front near ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: leader?.id
-    }));
-    return true;
-  }
-
-  if (world.year === 1918) {
-    const selected = world.cells
-      .slice()
-      .sort((a, b) => b.tension - a.tension)
-      .slice(0, Math.min(12, world.cells.length));
-
-    for (const cell of selected) {
-      cell.tension = clamp(cell.tension - 8);
-      cell.stability = clamp(cell.stability + 5);
+    if (signal.type === "expansion") {
+      const leader = strongestFaction(world);
+      if (leader && impacted.length > 0) {
+        const weakest = [...impacted].sort((a, b) => a.stability - b.stability)[0];
+        weakest.owner = leader.id;
+      }
     }
 
-    pushEvent(world, createEvent(world, "alliance", {
-      title: "Armistice Momentum",
-      description: "A broad ceasefire lowers pressure across major fronts."
+    const sample = impacted[0];
+    pushEvent(world, createEvent(world, signal.type, {
+      title: signal.title,
+      description: signal.description,
+      targetCellId: sample?.id,
+      factionId: sample?.owner
     }));
-    return true;
   }
 
-  if (world.year === 1929) {
-    const target = pickTargetCell(world, "highest_richness");
-    target.richness = clamp(target.richness - 14);
-    target.stability = clamp(target.stability - 6);
-    target.tension = clamp(target.tension + 4);
-
-    pushEvent(world, createEvent(world, "crisis_local", {
-      title: "Market Crash",
-      description: `A financial shock hits ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-    return true;
-  }
-
-  if (world.year === 1945) {
-    const target = pickTargetCell(world, "lowest_richness");
-    target.richness = clamp(target.richness + 14);
-    target.stability = clamp(target.stability + 6);
-    target.tension = clamp(target.tension - 5);
-
-    pushEvent(world, createEvent(world, "discovery", {
-      title: "Reconstruction Wave",
-      description: `Rebuilding efforts boost ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-    return true;
-  }
-
-  return false;
+  return true;
 }
 
 export function triggerWorldEvent(world: World, requestedType?: EventType): World {
@@ -450,3 +420,5 @@ export function tickWorld(world: World): World {
 
   return world;
 }
+
+
