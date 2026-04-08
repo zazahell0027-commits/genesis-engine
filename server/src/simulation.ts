@@ -16,7 +16,7 @@ function deterministicDelta(world: World, cellId: string): number {
 function deterministicIndex(world: World, salt: string, size: number): number {
   if (size <= 1) return 0;
 
-  const seed = `${world.id}:${world.tick}:${salt}`;
+  const seed = `${world.id}:${world.tick}:${world.year}:${salt}`;
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = (hash * 29 + seed.charCodeAt(i)) % 104729;
@@ -63,9 +63,13 @@ function toEventTypeByIndex(index: number): EventType {
 
 function pushEvent(world: World, event: WorldEvent): void {
   world.events.unshift(event);
-  if (world.events.length > 50) {
-    world.events = world.events.slice(0, 50);
+  if (world.events.length > 80) {
+    world.events = world.events.slice(0, 80);
   }
+}
+
+function territoryLabel(cell: WorldCell): string {
+  return `${cell.country} (${cell.x}, ${cell.y})`;
 }
 
 function factionName(world: World, factionId?: string): string {
@@ -103,12 +107,16 @@ function pickTargetCell(world: World, strategy: "highest_tension" | "lowest_rich
   return cells[0];
 }
 
-function createEvent(world: World, type: EventType, details: {
-  title: string;
-  description: string;
-  targetCellId?: string;
-  factionId?: string;
-}): WorldEvent {
+function createEvent(
+  world: World,
+  type: EventType,
+  details: {
+    title: string;
+    description: string;
+    targetCellId?: string;
+    factionId?: string;
+  }
+): WorldEvent {
   return {
     id: `${world.id}-evt-${world.tick}-${world.events.length + 1}`,
     tick: world.tick,
@@ -118,6 +126,104 @@ function createEvent(world: World, type: EventType, details: {
     targetCellId: details.targetCellId,
     factionId: details.factionId
   };
+}
+
+function actionCost(_action: PlayerActionType): number {
+  return 1;
+}
+
+export function canAffordAction(world: World, action: PlayerActionType): boolean {
+  return world.actionPoints >= actionCost(action);
+}
+
+function applyHistoricalMilestone(world: World): boolean {
+  if (world.kind !== "historical") return false;
+
+  if (world.year === 1912) {
+    const target = pickTargetCell(world, "highest_tension");
+    target.tension = clamp(target.tension + 10);
+    target.stability = clamp(target.stability - 5);
+
+    pushEvent(world, createEvent(world, "troubles", {
+      title: "Balkan Shockwave",
+      description: `Regional unrest spreads around ${territoryLabel(target)}.`,
+      targetCellId: target.id,
+      factionId: target.owner
+    }));
+    return true;
+  }
+
+  if (world.year === 1914) {
+    const leader = strongestFaction(world);
+    const borderCells = world.cells.filter(
+      (cell) => cell.x === 0 || cell.y === 0 || cell.x === world.width - 1 || cell.y === world.height - 1
+    );
+    const target = borderCells[deterministicIndex(world, "milestone-1914", borderCells.length)] ?? world.cells[0];
+
+    if (leader) {
+      target.owner = leader.id;
+      target.stability = clamp(target.stability - 6);
+      target.tension = clamp(target.tension + 9);
+    }
+
+    pushEvent(world, createEvent(world, "expansion", {
+      title: "Great War Fronts",
+      description: `${factionName(world, leader?.id)} opens a new front near ${territoryLabel(target)}.`,
+      targetCellId: target.id,
+      factionId: leader?.id
+    }));
+    return true;
+  }
+
+  if (world.year === 1918) {
+    const selected = world.cells
+      .slice()
+      .sort((a, b) => b.tension - a.tension)
+      .slice(0, Math.min(12, world.cells.length));
+
+    for (const cell of selected) {
+      cell.tension = clamp(cell.tension - 8);
+      cell.stability = clamp(cell.stability + 5);
+    }
+
+    pushEvent(world, createEvent(world, "alliance", {
+      title: "Armistice Momentum",
+      description: "A broad ceasefire lowers pressure across major fronts."
+    }));
+    return true;
+  }
+
+  if (world.year === 1929) {
+    const target = pickTargetCell(world, "highest_richness");
+    target.richness = clamp(target.richness - 14);
+    target.stability = clamp(target.stability - 6);
+    target.tension = clamp(target.tension + 4);
+
+    pushEvent(world, createEvent(world, "crisis_local", {
+      title: "Market Crash",
+      description: `A financial shock hits ${territoryLabel(target)}.`,
+      targetCellId: target.id,
+      factionId: target.owner
+    }));
+    return true;
+  }
+
+  if (world.year === 1945) {
+    const target = pickTargetCell(world, "lowest_richness");
+    target.richness = clamp(target.richness + 14);
+    target.stability = clamp(target.stability + 6);
+    target.tension = clamp(target.tension - 5);
+
+    pushEvent(world, createEvent(world, "discovery", {
+      title: "Reconstruction Wave",
+      description: `Rebuilding efforts boost ${territoryLabel(target)}.`,
+      targetCellId: target.id,
+      factionId: target.owner
+    }));
+    return true;
+  }
+
+  return false;
 }
 
 export function triggerWorldEvent(world: World, requestedType?: EventType): World {
@@ -130,7 +236,7 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
 
     pushEvent(world, createEvent(world, type, {
       title: "Civil Unrest",
-      description: `Des troubles éclatent dans (${target.x}, ${target.y}).`,
+      description: `Unrest erupts in ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -143,12 +249,14 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
     const leader = strongestFaction(world);
     pushEvent(world, createEvent(world, type, {
       title: "Regional Pact",
-      description: `${factionName(world, leader?.id)} consolide une alliance régionale.`,
+      description: `${factionName(world, leader?.id)} secures a diplomatic pact.`,
       factionId: leader?.id
     }));
   } else if (type === "expansion") {
     const leader = strongestFaction(world);
-    const borderCells = world.cells.filter((cell) => cell.x === 0 || cell.y === 0 || cell.x === world.width - 1 || cell.y === world.height - 1);
+    const borderCells = world.cells.filter(
+      (cell) => cell.x === 0 || cell.y === 0 || cell.x === world.width - 1 || cell.y === world.height - 1
+    );
     const target = borderCells[deterministicIndex(world, "expansion-target", borderCells.length)] ?? world.cells[0];
 
     if (leader) {
@@ -159,7 +267,7 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
 
     pushEvent(world, createEvent(world, type, {
       title: "Territorial Push",
-      description: `${factionName(world, leader?.id)} étend son contrôle en périphérie.`,
+      description: `${factionName(world, leader?.id)} expands toward ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: leader?.id
     }));
@@ -171,7 +279,7 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
 
     pushEvent(world, createEvent(world, type, {
       title: "Local Crisis",
-      description: `Une crise brutale impacte la zone (${target.x}, ${target.y}).`,
+      description: `A sudden crisis impacts ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -182,7 +290,7 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
 
     pushEvent(world, createEvent(world, type, {
       title: "Strategic Discovery",
-      description: `Une découverte améliore les perspectives de (${target.x}, ${target.y}).`,
+      description: `A breakthrough improves outlook in ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -199,6 +307,12 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
   }
 
   const normalizedAction: PlayerActionType = action === "incite" ? "disrupt" : action;
+  const cost = actionCost(normalizedAction);
+  if (world.actionPoints < cost) {
+    return world;
+  }
+
+  world.actionPoints = clamp(world.actionPoints - cost, 0, world.maxActionPoints);
 
   if (normalizedAction === "stabilize") {
     target.stability = clamp(target.stability + 9);
@@ -206,7 +320,7 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
 
     pushEvent(world, createEvent(world, "alliance", {
       title: "Local Stabilization",
-      description: `La zone (${target.x}, ${target.y}) se stabilise après intervention.`,
+      description: `Intervention calms ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -217,7 +331,7 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
 
     pushEvent(world, createEvent(world, "discovery", {
       title: "Economic Investment",
-      description: `Un investissement booste l'économie locale à (${target.x}, ${target.y}).`,
+      description: `Investment boosts production in ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -232,7 +346,7 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
 
       pushEvent(world, createEvent(world, "expansion", {
         title: "Influence Shift",
-        description: `L'influence locale fait basculer (${target.x}, ${target.y}) vers ${factionName(world, candidate.owner)}.`,
+        description: `${territoryLabel(target)} shifts toward ${factionName(world, candidate.owner)}.`,
         targetCellId: target.id,
         factionId: candidate.owner
       }));
@@ -240,7 +354,7 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
       target.stability = clamp(target.stability + 3);
       pushEvent(world, createEvent(world, "alliance", {
         title: "Influence Attempt",
-        description: `Tentative d'influence à (${target.x}, ${target.y}) sans changement de contrôle.`,
+        description: `Influence campaign in ${territoryLabel(target)} stabilizes local ties.`,
         targetCellId: target.id,
         factionId: target.owner
       }));
@@ -251,7 +365,7 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
 
     pushEvent(world, createEvent(world, "troubles", {
       title: "Provocation",
-      description: `Une perturbation enflamme la zone (${target.x}, ${target.y}).`,
+      description: `A provocation inflames ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -263,6 +377,8 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
 
 export function tickWorld(world: World): World {
   world.tick += 1;
+  world.year += 1;
+  world.actionPoints = clamp(world.actionPoints + 1, 0, world.maxActionPoints);
 
   const snapshot = new Map(world.cells.map((cell) => [cell.id, { ...cell }]));
   let ownerChanges = 0;
@@ -278,9 +394,19 @@ export function tickWorld(world: World): World {
 
     const noise = deterministicDelta(world, cell.id);
 
-    const richnessDelta = noise + (before.stability >= 60 ? 1 : 0) - (before.tension >= 62 ? 1 : 0);
-    const tensionDelta = trendToward(before.tension, neighborTensionAvg) + (noise > 0 ? 1 : noise < 0 ? -1 : 0);
-    const stabilityDelta = (before.tension >= 62 ? -2 : 1) + (neighborTensionAvg >= 68 ? -1 : 0);
+    let richnessDelta = noise + (before.stability >= 60 ? 1 : 0) - (before.tension >= 62 ? 1 : 0);
+    let tensionDelta = trendToward(before.tension, neighborTensionAvg) + (noise > 0 ? 1 : noise < 0 ? -1 : 0);
+    let stabilityDelta = (before.tension >= 62 ? -2 : 1) + (neighborTensionAvg >= 68 ? -1 : 0);
+
+    if (world.kind === "historical" && world.year >= 1912 && world.year <= 1918) {
+      if (cell.continent === "Europe" || cell.continent === "Asia") {
+        tensionDelta += 1;
+      }
+    }
+
+    if (world.kind === "historical" && world.year >= 1920 && world.year <= 1926) {
+      stabilityDelta += 1;
+    }
 
     cell.richness = clamp(before.richness + richnessDelta);
     cell.tension = clamp(before.tension + tensionDelta);
@@ -299,18 +425,21 @@ export function tickWorld(world: World): World {
   const avgRichness = average(world.cells.map((cell) => cell.richness));
   const highTension = world.cells.filter((cell) => cell.tension > 68).length;
 
-  let autoEventType: EventType | null = null;
+  const milestoneApplied = applyHistoricalMilestone(world);
 
-  if (ownerChanges > 0) {
-    autoEventType = "expansion";
-  } else if (highTension >= Math.ceil(world.cells.length * 0.23)) {
-    autoEventType = "troubles";
-  } else if (avgStability >= 70 && world.tick % 4 === 0) {
-    autoEventType = "alliance";
-  } else if (avgRichness >= 63 && world.tick % 3 === 0) {
-    autoEventType = "discovery";
-  } else if (avgStability <= 42) {
-    autoEventType = "crisis_local";
+  let autoEventType: EventType | null = null;
+  if (!milestoneApplied) {
+    if (ownerChanges > 0) {
+      autoEventType = "expansion";
+    } else if (highTension >= Math.ceil(world.cells.length * 0.23)) {
+      autoEventType = "troubles";
+    } else if (avgStability >= 70 && world.tick % 4 === 0) {
+      autoEventType = "alliance";
+    } else if (avgRichness >= 63 && world.tick % 3 === 0) {
+      autoEventType = "discovery";
+    } else if (avgStability <= 42) {
+      autoEventType = "crisis_local";
+    }
   }
 
   if (autoEventType) {

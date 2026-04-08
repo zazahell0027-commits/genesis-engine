@@ -1,4 +1,4 @@
-import type { AIProvider, WorldNarrativeInput } from "../types.js";
+﻿import type { AIProvider, WorldNarrativeInput } from "../types.js";
 
 type OllamaChatResponse = {
   message?: {
@@ -26,8 +26,8 @@ export class OllamaProvider implements AIProvider {
 
   async summarizeWorld(input: { worldName: string; tick: number }): Promise<string> {
     return this.generateText(
-      "Résumé technique court du monde",
-      `Monde: ${input.worldName}. Tick: ${input.tick}. Résume en 1 phrase.`,
+      "Technical world summary",
+      `World: ${input.worldName}. Tick: ${input.tick}. Return one concise sentence in French.`,
       () => this.fallback.summarizeWorld(input)
     );
   }
@@ -35,14 +35,17 @@ export class OllamaProvider implements AIProvider {
   async generateWorldNarrative(input: WorldNarrativeInput): Promise<string> {
     const prompt = [
       `Monde: ${input.worldName}`,
+      `Scenario: ${input.scenarioId}`,
+      `Annee: ${input.year}`,
       `Type: ${input.kind}`,
-      `Rôle joueur: ${input.role}`,
-      `Complexité: ${input.complexity}`,
+      `Role joueur: ${input.role}`,
+      `Complexite: ${input.complexity}`,
       `Tick: ${input.tick}`,
-      `Moyennes => richesse ${input.avgRichness}, stabilité ${input.avgStability}, tensions ${input.avgTension}`,
+      `Points action: ${input.actionPoints}/${input.maxActionPoints}`,
+      `Moyennes: richesse ${input.avgRichness}, stabilite ${input.avgStability}, tensions ${input.avgTension}`,
       `Factions: ${input.factionsText}`,
-      input.latestEventText ? `Dernier événement: ${input.latestEventText}` : "Pas d'événement récent.",
-      "Rédige une narration immersive en français (3 phrases), orientée jeu de stratégie narratif, sans inventer de mécanique absente."
+      input.latestEventText ? `Dernier evenement: ${input.latestEventText}` : "Pas d'evenement recent.",
+      "Ecris un briefing immersif en francais, 3 phrases max, style jeu de strategie, avec cause-consequence claire."
     ].join("\n");
 
     return this.generateText("Narrateur de simulation", prompt, () => this.fallback.generateWorldNarrative(input));
@@ -118,7 +121,7 @@ export class OllamaProvider implements AIProvider {
         return this.cachedModel;
       }
 
-      const preferredFallbacks = ["mistral:latest", "gemma3:4b", "deepseek-r1:8b"];
+      const preferredFallbacks = ["qwen3:8b", "mistral:latest", "gemma3:4b", "deepseek-r1:8b"];
       const fallback = preferredFallbacks.find((name) => available.includes(name));
       this.cachedModel = fallback ?? available[0];
       return this.cachedModel;

@@ -10,8 +10,15 @@ export type WorldBriefing = {
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Request failed");
+    const raw = await response.text();
+    let message = raw || "Request failed";
+    try {
+      const parsed = JSON.parse(raw) as { error?: string };
+      message = parsed.error ?? message;
+    } catch {
+      message = raw || "Request failed";
+    }
+    throw new Error(message);
   }
 
   return response.json() as Promise<T>;

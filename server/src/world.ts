@@ -3,6 +3,7 @@
   Faction,
   MapSize,
   PoliticalComplexity,
+  RoleType,
   World,
   WorldCell,
   WorldEvent,
@@ -11,15 +12,15 @@
 
 const worlds = new Map<string, World>();
 
-const historicalNames = [
-  "Aurelian League",
-  "Sable Republic",
-  "Crown of Valen",
-  "Helios Dominion",
-  "North March"
+const historicalFactionNames = [
+  "Entente League",
+  "Central Compact",
+  "Maritime Coalition",
+  "Industrial Union",
+  "Continental Front"
 ];
 
-const fictionalNames = [
+const fictionalFactionNames = [
   "Ashen Circle",
   "Verdant Pact",
   "Solaris Combine",
@@ -27,8 +28,12 @@ const fictionalNames = [
   "Aurora Syndicate"
 ];
 
-const historicalContinents = ["Occident", "Steppe Centrale", "Orient", "Sud Imperial"];
 const fictionalContinents = ["Nordreach", "Verdelune", "Duskfall", "Sables d'Astra"];
+
+type GeoProfile = {
+  continent: string;
+  country: string;
+};
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -71,7 +76,7 @@ function factionCountFromComplexity(complexity: PoliticalComplexity): number {
 }
 
 function createFactions(kind: WorldKind, complexity: PoliticalComplexity): Faction[] {
-  const source = kind === "historical" ? historicalNames : fictionalNames;
+  const source = kind === "historical" ? historicalFactionNames : fictionalFactionNames;
   const count = factionCountFromComplexity(complexity);
 
   return source.slice(0, count).map((name, index) => ({
@@ -114,36 +119,104 @@ function ownerFromCenters(x: number, y: number, centers: FactionCenter[]): strin
   return winner;
 }
 
-function assignContinent(x: number, y: number, width: number, height: number, kind: WorldKind): string {
-  const names = kind === "historical" ? historicalContinents : fictionalContinents;
+function longitudeFromX(x: number, width: number): number {
+  if (width <= 1) return 0;
+  return (x / (width - 1)) * 360 - 180;
+}
 
+function latitudeFromY(y: number, height: number): number {
+  if (height <= 1) return 0;
+  return 90 - (y / (height - 1)) * 180;
+}
+
+function inBox(
+  lon: number,
+  lat: number,
+  minLon: number,
+  maxLon: number,
+  minLat: number,
+  maxLat: number
+): boolean {
+  return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
+}
+
+function historicalGeoFromCell(x: number, y: number, width: number, height: number): GeoProfile {
+  const lon = longitudeFromX(x, width);
+  const lat = latitudeFromY(y, height);
+
+  if (inBox(lon, lat, -170, -50, 15, 80)) {
+    if (lon < -105) return { continent: "North America", country: "Canada" };
+    if (lat < 30) return { continent: "North America", country: "Mexico" };
+    return { continent: "North America", country: "United States" };
+  }
+
+  if (inBox(lon, lat, -90, -30, -55, 15)) {
+    if (lat < -25) return { continent: "South America", country: "Argentina" };
+    if (lon < -65) return { continent: "South America", country: "Andean States" };
+    return { continent: "South America", country: "Brazil" };
+  }
+
+  if (inBox(lon, lat, -15, 45, 35, 72)) {
+    if (lon < -2) return { continent: "Europe", country: "United Kingdom" };
+    if (lon < 12) return { continent: "Europe", country: "France" };
+    if (lon < 25) return { continent: "Europe", country: "German Empire" };
+    return { continent: "Europe", country: "Russian Empire" };
+  }
+
+  if (inBox(lon, lat, -20, 55, -35, 35)) {
+    if (lat > 18) return { continent: "Africa", country: "Egypt" };
+    if (lat < -18) return { continent: "Africa", country: "South Africa" };
+    if (lon > 30) return { continent: "Africa", country: "Ethiopia" };
+    return { continent: "Africa", country: "West Africa" };
+  }
+
+  if (inBox(lon, lat, 45, 160, 5, 78)) {
+    if (lon < 70) return { continent: "Asia", country: "Ottoman Heartland" };
+    if (lon < 110) return { continent: "Asia", country: "Qing China" };
+    if (lon < 130) return { continent: "Asia", country: "Korean Peninsula" };
+    return { continent: "Asia", country: "Japan" };
+  }
+
+  if (inBox(lon, lat, 110, 180, -50, 5)) {
+    if (lon > 155) return { continent: "Oceania", country: "Pacific Islands" };
+    return { continent: "Oceania", country: "Australia" };
+  }
+
+  if (lat >= 20) return { continent: "Europe", country: "Frontier Europe" };
+  if (lat <= -15) return { continent: "South America", country: "Atlantic South" };
+  return { continent: "Africa", country: "Equatorial Belt" };
+}
+
+function fictionalGeoFromCell(x: number, y: number, width: number, height: number): GeoProfile {
   const northBand = Math.floor(height * 0.28);
   const southBand = Math.floor(height * 0.72);
   const westBand = Math.floor(width * 0.45);
 
-  if (y <= northBand) {
-    return names[0];
-  }
+  let continent = fictionalContinents[2];
+  if (y <= northBand) continent = fictionalContinents[0];
+  else if (y >= southBand) continent = fictionalContinents[3];
+  else if (x <= westBand) continent = fictionalContinents[1];
 
-  if (y >= southBand) {
-    return names[3];
-  }
-
-  if (x <= westBand) {
-    return names[1];
-  }
-
-  return names[2];
+  const sector = 1 + ((x * 7 + y * 11) % 4);
+  return { continent, country: `${continent} Sector ${sector}` };
 }
 
-function createCell(x: number, y: number, owner: string, continent: string, worldId: string): WorldCell {
+function geoFromCell(kind: WorldKind, x: number, y: number, width: number, height: number): GeoProfile {
+  if (kind === "historical") {
+    return historicalGeoFromCell(x, y, width, height);
+  }
+  return fictionalGeoFromCell(x, y, width, height);
+}
+
+function createCell(x: number, y: number, owner: string, geo: GeoProfile, worldId: string): WorldCell {
   const seed = `${worldId}:${x}:${y}`;
   return {
     id: `${x}-${y}`,
     x,
     y,
     owner,
-    continent,
+    continent: geo.continent,
+    country: geo.country,
     richness: valueBetween(`${seed}:richness`, 38, 68),
     stability: valueBetween(`${seed}:stability`, 45, 75),
     tension: valueBetween(`${seed}:tension`, 18, 48)
@@ -156,9 +229,27 @@ function createInitialEvent(world: World): WorldEvent {
     id: `${world.id}-evt-0`,
     tick: 0,
     type,
-    title: "World Initialized",
-    description: `${world.name} démarre avec ${world.factions.length} factions actives.`
+    title: world.kind === "historical" ? "Historical Scenario Loaded" : "World Initialized",
+    description:
+      world.kind === "historical"
+        ? `${world.name} starts in ${world.year} with ${world.factions.length} power blocs.`
+        : `${world.name} starts with ${world.factions.length} active factions.`
   };
+}
+
+function scenarioIdFromKind(kind: WorldKind): string {
+  return kind === "historical" ? "earth-1910" : "frontier-sandbox";
+}
+
+function baseYearFromKind(kind: WorldKind): number {
+  return kind === "historical" ? 1910 : 2200;
+}
+
+function actionBudgetFromRole(role: RoleType): { actionPoints: number; maxActionPoints: number } {
+  if (role === "gm") return { actionPoints: 5, maxActionPoints: 5 };
+  if (role === "nation") return { actionPoints: 4, maxActionPoints: 4 };
+  if (role === "faction") return { actionPoints: 3, maxActionPoints: 3 };
+  return { actionPoints: 2, maxActionPoints: 2 };
 }
 
 export function createWorld(input: CreateWorldInput): World {
@@ -175,15 +266,21 @@ export function createWorld(input: CreateWorldInput): World {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const owner = ownerFromCenters(x, y, centers);
-      const continent = assignContinent(x, y, width, height, kind);
-      cells.push(createCell(x, y, owner, continent, id));
+      const geo = geoFromCell(kind, x, y, width, height);
+      cells.push(createCell(x, y, owner, geo, id));
     }
   }
+
+  const actionBudget = actionBudgetFromRole(role);
 
   const world: World = {
     id,
     name: input.name?.trim() || "New Genesis World",
+    scenarioId: scenarioIdFromKind(kind),
+    year: baseYearFromKind(kind),
     tick: 0,
+    actionPoints: actionBudget.actionPoints,
+    maxActionPoints: actionBudget.maxActionPoints,
     width,
     height,
     role,
@@ -201,11 +298,11 @@ export function createWorld(input: CreateWorldInput): World {
 
 export function createDemoWorld(): World {
   return createWorld({
-    name: "Genesis Frontier",
-    kind: "fictional",
+    name: "Genesis Earth 1910",
+    kind: "historical",
     complexity: "medium",
     mapSize: "medium",
-    role: "hero"
+    role: "nation"
   });
 }
 

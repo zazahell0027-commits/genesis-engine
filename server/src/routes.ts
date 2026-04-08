@@ -1,7 +1,7 @@
 ﻿import type { EventType, PlayerActionType, World } from "@genesis/shared";
 import type { Request, Response } from "express";
 import type { AIProvider } from "./ai/types.js";
-import { applyPlayerAction, tickWorld, triggerWorldEvent } from "./simulation.js";
+import { applyPlayerAction, canAffordAction, tickWorld, triggerWorldEvent } from "./simulation.js";
 import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
 
 function average(values: number[]): number {
@@ -107,6 +107,15 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       return;
     }
 
+    if (!canAffordAction(world, action)) {
+      res.status(409).json({
+        error: "Not enough action points",
+        actionPoints: world.actionPoints,
+        maxActionPoints: world.maxActionPoints
+      });
+      return;
+    }
+
     const updated = applyPlayerAction(world, cellId, action);
     saveWorld(updated);
     res.json(updated);
@@ -131,10 +140,14 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
 
     const narrative = await ai.generateWorldNarrative({
       worldName: world.name,
+      scenarioId: world.scenarioId,
+      year: world.year,
       tick: world.tick,
       role: world.role,
       kind: world.kind,
       complexity: world.complexity,
+      actionPoints: world.actionPoints,
+      maxActionPoints: world.maxActionPoints,
       avgRichness,
       avgStability,
       avgTension,

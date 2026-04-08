@@ -103,7 +103,7 @@ body {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -278,6 +278,11 @@ body {
   font-style: italic;
 }
 
+.cell-country {
+  color: #0f172a;
+  font-weight: 700;
+}
+
 .cell-coords {
   font-weight: 700;
   font-size: 12px;
@@ -419,6 +424,18 @@ pre {
 
 .error {
   color: #b42318;
+}
+
+.action-points {
+  margin: 0 0 12px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.action-warning {
+  color: #b42318;
+  font-size: 13px;
+  margin-top: 8px;
 }
 
 @media (max-width: 980px) {

@@ -132,6 +132,18 @@ function getOwnerColor(world: World, ownerId: string): string {
   return ownerPalette[(ownerIndex + ownerPalette.length) % ownerPalette.length] ?? "#334155";
 }
 
+function countryCode(country: string): string {
+  const parts = country.split(" ").filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 3).toUpperCase();
+  }
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+
+function yearAtEvent(world: World, eventTick: number): number {
+  return world.year - (world.tick - eventTick);
+}
+
 function buildLatPath(latDeg: number): string {
   const lat = degToRad(latDeg);
   const points: string[] = [];
@@ -184,9 +196,9 @@ export default function App(): React.JSX.Element {
   const [globeAutoRotate, setGlobeAutoRotate] = useState(true);
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Demo",
-    kind: "fictional",
+    kind: "historical",
     complexity: "medium",
-    role: "hero",
+    role: "nation",
     mapSize: "medium"
   });
 
@@ -523,7 +535,7 @@ export default function App(): React.JSX.Element {
         <div>
           <h1>{world?.name}</h1>
           <p>
-            Tick {world?.tick} | {world?.kind === "historical" ? "Historique" : "Fictif"} | rôle {world?.role}
+            Annee {world?.year} | Tick {world?.tick} | {world?.kind === "historical" ? "Historique" : "Fictif"} | role {world?.role} | scenario {world?.scenarioId}
           </p>
         </div>
         <div className="actions">
@@ -542,6 +554,12 @@ export default function App(): React.JSX.Element {
           <button type="button" onClick={() => setViewMode("landing")}>Retour accueil</button>
         </div>
       </header>
+
+      {world && (
+        <p className="action-points">
+          Points d'action: {world.actionPoints}/{world.maxActionPoints} (les actions territoriales en consomment 1, +1 a chaque tick)
+        </p>
+      )}
 
       {error && <p className="error">Erreur: {error}</p>}
 
@@ -562,6 +580,10 @@ export default function App(): React.JSX.Element {
           <article>
             <h3>Factions</h3>
             <p>{world.factions.length}</p>
+          </article>
+          <article>
+            <h3>Points d'action</h3>
+            <p>{world.actionPoints}/{world.maxActionPoints}</p>
           </article>
         </section>
       )}
@@ -597,10 +619,11 @@ export default function App(): React.JSX.Element {
                       aria-label={`Cell ${cell.x},${cell.y}`}
                       aria-pressed={selectedCellId === cell.id}
                       style={{ "--owner-color": ownerColor } as React.CSSProperties}
-                      title={`${cell.continent} | R${cell.richness} S${cell.stability} T${cell.tension}`}
+                      title={`${cell.country}, ${cell.continent} | R${cell.richness} S${cell.stability} T${cell.tension}`}
                     >
                       <div className="cell-owner-dot" />
                       <div className="cell-coords">({cell.x}, {cell.y})</div>
+                      <small className="cell-country">{countryCode(cell.country)}</small>
                       <small className="cell-continent">{cell.continent}</small>
                       <small>R {cell.richness}</small>
                       <small>S {cell.stability}</small>
@@ -692,6 +715,7 @@ export default function App(): React.JSX.Element {
             {selectedCell ? (
               <div className="details-block">
                 <p>Coordonnées: ({selectedCell.x}, {selectedCell.y})</p>
+                <p>Pays: {selectedCell.country}</p>
                 <p>Continent: {selectedCell.continent}</p>
                 <p>Faction: {factionName(world, selectedCell.owner)}</p>
                 <p>Risque: {getRiskLabel(selectedCell)}</p>
@@ -699,11 +723,12 @@ export default function App(): React.JSX.Element {
                 <p>Stabilité: {selectedCell.stability}</p>
                 <p>Tensions: {selectedCell.tension}</p>
                 <div className="actions territory-actions">
-                  <button type="button" onClick={() => handlePlayerAction("stabilize")} disabled={loading}>Stabiliser</button>
-                  <button type="button" onClick={() => handlePlayerAction("invest")} disabled={loading}>Investir</button>
-                  <button type="button" onClick={() => handlePlayerAction("influence")} disabled={loading}>Influencer</button>
-                  <button type="button" onClick={() => handlePlayerAction("disrupt")} disabled={loading}>Perturber</button>
+                  <button type="button" onClick={() => handlePlayerAction("stabilize")} disabled={loading || world.actionPoints <= 0}>Stabiliser</button>
+                  <button type="button" onClick={() => handlePlayerAction("invest")} disabled={loading || world.actionPoints <= 0}>Investir</button>
+                  <button type="button" onClick={() => handlePlayerAction("influence")} disabled={loading || world.actionPoints <= 0}>Influencer</button>
+                  <button type="button" onClick={() => handlePlayerAction("disrupt")} disabled={loading || world.actionPoints <= 0}>Perturber</button>
                 </div>
+                {world.actionPoints <= 0 && <p className="action-warning">Plus de points d'action. Lance un tick.</p>}
               </div>
             ) : (
               <p>Sélectionne une zone de la carte.</p>
@@ -743,7 +768,7 @@ export default function App(): React.JSX.Element {
               {localEvents.length > 0 ? (
                 localEvents.map((evt) => (
                   <article key={evt.id} className="event-item local-event">
-                    <strong>{eventTypeLabel(evt.type)} - tick {evt.tick}</strong>
+                    <strong>{eventTypeLabel(evt.type)} - annee {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
                     <p>{evt.title}</p>
                     <small>{evt.description}</small>
                   </article>
@@ -766,7 +791,7 @@ export default function App(): React.JSX.Element {
             <div className="event-feed">
               {world.events.slice(0, 8).map((evt) => (
                 <article key={evt.id} className="event-item">
-                  <strong>{eventTypeLabel(evt.type)} - tick {evt.tick}</strong>
+                  <strong>{eventTypeLabel(evt.type)} - annee {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
                   <p>{evt.title}</p>
                   <small>{evt.description}</small>
                 </article>

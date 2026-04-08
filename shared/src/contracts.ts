@@ -11,6 +11,7 @@ export type WorldCell = {
   y: number;
   owner: string;
   continent: string;
+  country: string;
   richness: number;
   stability: number;
   tension: number;
@@ -36,7 +37,11 @@ export type WorldEvent = {
 export type World = {
   id: string;
   name: string;
+  scenarioId: string;
+  year: number;
   tick: number;
+  actionPoints: number;
+  maxActionPoints: number;
   width: number;
   height: number;
   role: RoleType;
