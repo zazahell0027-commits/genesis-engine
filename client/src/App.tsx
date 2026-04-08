@@ -3,7 +3,6 @@ import {
   HISTORICAL_START_COUNTRIES,
   type CreateWorldInput,
   type EventType,
-  type HistoricalStartCountry,
   type MapSize,
   type PoliticalComplexity,
   type RoleType,
@@ -22,6 +21,7 @@ import {
   triggerWorldEvent,
   type WorldBriefing
 } from "./api";
+import rawWorldGeo from "./assets/world_countries_slim.json";
 import { WorldGeoMap } from "./components/WorldGeoMap";
 import "./styles.css";
 
@@ -40,7 +40,7 @@ type CreateFormState = {
   complexity: PoliticalComplexity;
   role: RoleType;
   mapSize: MapSize;
-  startCountry: HistoricalStartCountry;
+  startCountry: string;
 };
 
 type ContinentOverview = {
@@ -68,6 +68,36 @@ type TerritoryImpact = {
 };
 
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
+
+type GeoFeatureSource = {
+  type: "Feature";
+  properties?: {
+    name?: string;
+  };
+};
+
+type GeoFeatureCollection = {
+  type: "FeatureCollection";
+  features?: GeoFeatureSource[];
+};
+
+function normalizeSearch(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+const geoData = rawWorldGeo as GeoFeatureCollection;
+
+const allStartCountries = (() => {
+  const fromGeo = (geoData.features ?? [])
+    .map((feature) => String(feature.properties?.name ?? "").trim())
+    .filter((name) => name.length > 0 && name !== "Fr. S. Antarctic Lands");
+
+  const unique = new Set<string>([...HISTORICAL_START_COUNTRIES, ...fromGeo]);
+  return [...unique].sort((a, b) => a.localeCompare(b));
+})();
 
 function getRiskLabel(cell: WorldCell): string {
   if (cell.tension > 65) return "Conflit";
@@ -143,6 +173,7 @@ export default function App(): React.JSX.Element {
   const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
   const [mapLens, setMapLens] = useState<MapLens>("control");
   const [commandText, setCommandText] = useState("");
+  const [countrySearch, setCountrySearch] = useState("");
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Earth 2010",
     kind: "historical",
@@ -151,6 +182,19 @@ export default function App(): React.JSX.Element {
     mapSize: "medium",
     startCountry: "France"
   });
+
+  const filteredStartCountries = useMemo(() => {
+    const query = normalizeSearch(countrySearch.trim());
+    const list = !query
+      ? allStartCountries
+      : allStartCountries.filter((country) => normalizeSearch(country).includes(query));
+
+    if (!list.includes(form.startCountry)) {
+      return [form.startCountry, ...list];
+    }
+
+    return list;
+  }, [countrySearch, form.startCountry]);
 
   const selectedCell = useMemo(() => {
     if (!world || !selectedCellId) return null;
@@ -232,6 +276,10 @@ export default function App(): React.JSX.Element {
     setViewMode("world");
     setShowJson(false);
     await refreshBriefing(created.id);
+  }
+
+  function handleHistoricalCountrySelection(country: string): void {
+    setForm((prev) => ({ ...prev, startCountry: country }));
   }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -415,17 +463,56 @@ export default function App(): React.JSX.Element {
             </label>
 
             {form.kind === "historical" && (
-              <label>
-                Pays de depart
-                <select
-                  value={form.startCountry}
-                  onChange={(event) => setForm((prev) => ({ ...prev, startCountry: event.target.value as HistoricalStartCountry }))}
-                >
+              <div className="country-picker">
+                <label>
+                  Recherche pays
+                  <input
+                    type="search"
+                    placeholder="Ex: France, Liechtenstein, Tuvalu..."
+                    value={countrySearch}
+                    onChange={(event) => setCountrySearch(event.target.value)}
+                  />
+                </label>
+
+                <div className="country-quick-picks">
                   {HISTORICAL_START_COUNTRIES.map((country) => (
-                    <option key={country} value={country}>{country}</option>
+                    <button
+                      key={country}
+                      type="button"
+                      className={form.startCountry === country ? "active" : ""}
+                      onClick={() => handleHistoricalCountrySelection(country)}
+                    >
+                      {country}
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
+
+                <label>
+                  Pays de depart ({filteredStartCountries.length} resultats)
+                  <select
+                    size={10}
+                    value={form.startCountry}
+                    onChange={(event) => handleHistoricalCountrySelection(event.target.value)}
+                  >
+                    {filteredStartCountries.map((country) => (
+                      <option key={country} value={country}>{country}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  Ou saisir manuellement
+                  <input
+                    type="text"
+                    value={form.startCountry}
+                    onChange={(event) => handleHistoricalCountrySelection(event.target.value)}
+                  />
+                </label>
+
+                <p className="country-picked">
+                  Pays selectionne: <strong>{form.startCountry}</strong>
+                </p>
+              </div>
             )}
 
             <label>

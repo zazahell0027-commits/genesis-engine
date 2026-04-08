@@ -1,4 +1,4 @@
-import { HISTORICAL_START_COUNTRIES, type EventType, type PlayerActionType, type World } from "@genesis/shared";
+import type { EventType, PlayerActionType, World } from "@genesis/shared";
 import type { Request, Response } from "express";
 import type { AIProvider } from "./ai/types.js";
 import {
@@ -13,8 +13,6 @@ import {
   triggerWorldEvent
 } from "./simulation.js";
 import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
-
-const historicalCountrySet = new Set<string>(HISTORICAL_START_COUNTRIES);
 
 function average(values: number[]): number {
   if (values.length === 0) return 0;
@@ -31,10 +29,6 @@ function latestEventText(world: World): string | undefined {
   const event = world.events[0];
   if (!event) return undefined;
   return `${event.title}: ${event.description}`;
-}
-
-function isHistoricalStartCountry(value: unknown): boolean {
-  return typeof value === "string" && historicalCountrySet.has(value);
 }
 
 function isAllowedAction(value: unknown): value is PlayerActionType {
@@ -80,15 +74,9 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
   });
 
   app.post("/world/create", (req: Request, res: Response) => {
-    const payload = (req.body ?? {}) as {
-      kind?: string;
-      startCountry?: unknown;
-    };
-
-    if (payload.kind === "historical" && payload.startCountry !== undefined && !isHistoricalStartCountry(payload.startCountry)) {
-      res.status(400).json({
-        error: `Invalid startCountry. Allowed values: ${HISTORICAL_START_COUNTRIES.join(", ")}`
-      });
+    const payload = (req.body ?? {}) as { startCountry?: unknown };
+    if (payload.startCountry !== undefined && typeof payload.startCountry !== "string") {
+      res.status(400).json({ error: "startCountry must be a string when provided" });
       return;
     }
 

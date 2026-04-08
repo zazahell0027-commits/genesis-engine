@@ -18,7 +18,7 @@ export const HISTORICAL_START_COUNTRIES = [
   "Egypt"
 ] as const;
 
-export type HistoricalStartCountry = (typeof HISTORICAL_START_COUNTRIES)[number];
+export type HistoricalStartCountry = string;
 
 export type WorldCell = {
   id: string;

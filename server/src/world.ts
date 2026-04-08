@@ -1,5 +1,4 @@
 import {
-  HISTORICAL_START_COUNTRIES,
   type CreateWorldInput,
   type Faction,
   type MapSize,
@@ -10,6 +9,7 @@ import {
   type WorldEvent,
   type WorldKind
 } from "@genesis/shared";
+import { findCountryAnchor, normalizeCountryKey } from "./data/countryAnchors.js";
 
 const worlds = new Map<string, World>();
 
@@ -30,19 +30,6 @@ const fictionalFactionNames = [
 ];
 
 const fictionalContinents = ["Nordreach", "Verdelune", "Duskfall", "Sables d'Astra"];
-const historicalStartCountrySet = new Set<string>(HISTORICAL_START_COUNTRIES);
-const startCountryAnchors: Record<string, { continent: string; lon: number; lat: number }> = {
-  France: { continent: "Europe", lon: 2, lat: 46 },
-  "United Kingdom": { continent: "Europe", lon: -2, lat: 54 },
-  Germany: { continent: "Europe", lon: 10, lat: 51 },
-  Russia: { continent: "Europe", lon: 37, lat: 56 },
-  "United States": { continent: "North America", lon: -98, lat: 39 },
-  Japan: { continent: "Asia", lon: 138, lat: 37 },
-  Turkey: { continent: "Asia", lon: 35, lat: 39 },
-  China: { continent: "Asia", lon: 104, lat: 35 },
-  Brazil: { continent: "South America", lon: -52, lat: -10 },
-  Egypt: { continent: "Africa", lon: 30, lat: 26 }
-};
 
 type GeoProfile = {
   continent: string;
@@ -238,22 +225,17 @@ function createCell(x: number, y: number, owner: string, geo: GeoProfile, worldI
 }
 
 function resolveHistoricalStartCountry(input: CreateWorldInput, cells: WorldCell[]): string {
-  const requested = input.startCountry;
-  if (requested && historicalStartCountrySet.has(requested)) {
+  const requested = typeof input.startCountry === "string" ? input.startCountry.trim() : "";
+  if (requested.length > 0) {
     return requested;
   }
 
-  const defaultCountry = "France";
-  if (historicalStartCountrySet.has(defaultCountry)) return defaultCountry;
-
-  const firstAllowed = HISTORICAL_START_COUNTRIES[0];
-  if (firstAllowed) return firstAllowed;
-
-  return cells[0]?.country ?? defaultCountry;
+  return cells[0]?.country ?? "France";
 }
 
 function firstCellForCountry(cells: WorldCell[], country: string): WorldCell | undefined {
-  return cells.find((cell) => cell.country === country);
+  const key = normalizeCountryKey(country);
+  return cells.find((cell) => normalizeCountryKey(cell.country) === key);
 }
 
 function nearestCellByAnchor(
@@ -286,22 +268,31 @@ function ensureStartCountryPresence(
   country: string
 ): WorldCell | undefined {
   const existing = firstCellForCountry(cells, country);
-  if (existing) return existing;
+  if (existing) {
+    existing.country = country;
+    return existing;
+  }
 
-  const anchor = startCountryAnchors[country];
-  if (!anchor) return cells[0];
+  const anchor = findCountryAnchor(country);
+  const fallbackIndex = Math.abs(hash(`start-country:${country}`)) % Math.max(1, cells.length);
+  const fallback = cells[fallbackIndex] ?? cells[0];
+  const nearest = anchor
+    ? nearestCellByAnchor(cells, width, height, anchor.lon, anchor.lat)
+    : fallback;
+  const target = nearest ?? fallback;
+  if (!target) return undefined;
 
-  const nearest = nearestCellByAnchor(cells, width, height, anchor.lon, anchor.lat);
-  if (!nearest) return cells[0];
-
-  nearest.country = country;
-  nearest.continent = anchor.continent;
-  return nearest;
+  target.country = anchor?.name ?? country;
+  if (anchor?.continent && anchor.continent !== "Seven seas (open ocean)") {
+    target.continent = anchor.continent;
+  }
+  return target;
 }
 
 function alignCountryOwnership(cells: WorldCell[], country: string, factionId: string): void {
+  const key = normalizeCountryKey(country);
   for (const cell of cells) {
-    if (cell.country !== country) continue;
+    if (normalizeCountryKey(cell.country) !== key) continue;
     cell.owner = factionId;
     cell.stability = clamp(cell.stability + 4, 0, 100);
     cell.tension = clamp(cell.tension - 3, 0, 100);
@@ -406,13 +397,13 @@ export function createWorld(input: CreateWorldInput): World {
     const startCell = ensureStartCountryPresence(cells, width, height, selectedCountry) ?? cells[0];
 
     if (startCell) {
-      world.playerCountry = selectedCountry;
+      world.playerCountry = startCell.country;
       world.startCellId = startCell.id;
 
       if (role === "nation") {
         world.playerFactionId = startCell.owner;
         world.countryLocked = true;
-        alignCountryOwnership(cells, selectedCountry, startCell.owner);
+        alignCountryOwnership(cells, startCell.country, startCell.owner);
 
         const playerFaction = factions.find((faction) => faction.id === startCell.owner);
         if (playerFaction) {

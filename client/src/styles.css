@@ -52,6 +52,47 @@ body {
   background: #fff;
 }
 
+.country-picker {
+  grid-column: span 2;
+  border: 1px solid #d7e1f0;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.country-picker select {
+  min-height: 200px;
+}
+
+.country-quick-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.country-quick-picks button {
+  border: 1px solid #1e4f8f;
+  border-radius: 999px;
+  background: #fff;
+  color: #1e4f8f;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.country-quick-picks button.active {
+  background: #1e4f8f;
+  color: #fff;
+}
+
+.country-picked {
+  margin: 0;
+  font-size: 13px;
+  color: #1d3557;
+}
+
 .actions {
   display: flex;
   gap: 10px;
@@ -445,6 +486,10 @@ pre {
   }
 
   .world-form .actions {
+    grid-column: auto;
+  }
+
+  .country-picker {
     grid-column: auto;
   }
 
