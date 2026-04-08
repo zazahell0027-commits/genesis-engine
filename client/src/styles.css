@@ -1,24 +1,67 @@
 ﻿:root {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  color: #1d2939;
-  background: #f5f7fb;
+  color: #101828;
+  background: radial-gradient(circle at 15% 10%, #f8fbff 0%, #f3f6fb 45%, #edf2f8 100%);
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1220px;
   margin: 0 auto;
   padding: 24px;
 }
 
+.hero {
+  border: 1px solid #dbe3ee;
+  border-radius: 14px;
+  background: #ffffffd9;
+  backdrop-filter: blur(2px);
+  padding: 20px;
+}
+
+.hero h1,
+.world-header h1 {
+  margin: 0 0 8px;
+}
+
+.world-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.world-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: #344054;
+}
+
+.world-form input,
+.world-form select {
+  border: 1px solid #cfd9e6;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  color: #101828;
+  background: #fff;
+}
+
 .actions {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.world-form .actions {
+  grid-column: span 2;
+  margin-top: 8px;
 }
 
 .actions button {
@@ -28,6 +71,7 @@ body {
   padding: 10px 14px;
   border-radius: 8px;
   cursor: pointer;
+  font-size: 14px;
 }
 
 .actions button:disabled {
@@ -35,9 +79,43 @@ body {
   cursor: not-allowed;
 }
 
+.world-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.metrics-grid article {
+  border: 1px solid #d9e2ef;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+}
+
+.metrics-grid h3 {
+  margin: 0;
+  font-size: 13px;
+  color: #475467;
+}
+
+.metrics-grid p {
+  margin: 6px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
 .world-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -53,7 +131,7 @@ body {
   border: 1px solid #d0d5dd;
   background: #f8fafc;
   padding: 6px;
-  min-height: 68px;
+  min-height: 72px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -63,6 +141,16 @@ body {
   appearance: none;
   cursor: pointer;
   color: #0f172a;
+  position: relative;
+}
+
+.cell-owner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--owner-color);
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px #94a3b8;
 }
 
 .cell small {
@@ -132,7 +220,7 @@ body {
 }
 
 .details-panel h3 {
-  margin: 8px 0;
+  margin: 10px 0 8px;
 }
 
 .details-block {
@@ -144,6 +232,28 @@ body {
 
 .details-block p {
   margin: 4px 0;
+}
+
+.event-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-item {
+  border: 1px solid #e3e9f2;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.event-item p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.event-item small {
+  color: #475467;
 }
 
 pre {
@@ -160,7 +270,29 @@ pre {
 }
 
 @media (max-width: 980px) {
+  .world-form {
+    grid-template-columns: 1fr;
+  }
+
+  .world-form .actions {
+    grid-column: auto;
+  }
+
+  .world-header {
+    flex-direction: column;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .world-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .metrics-grid {
     grid-template-columns: 1fr;
   }
 }
