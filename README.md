@@ -8,14 +8,16 @@ Le projet vise une base modulaire, stable et extensible, sans dépendance cloud 
 - Landing + formulaire de création de monde.
 - Monde démo chargeable en un clic.
 - Carte 2D en grille (une case = territoire).
-- Vue globe interactive (rotation + sélection de territoires).
+- Carte monde 2D interactive (pays stylisés, sélection de territoires).
 - Continents générés et visibles sur la carte de territoires.
 - Sélection de territoire + panneau local détaillé.
 - Factions générées selon type/complexité et ownership initial.
-- Tick déterministe avec influence des voisins.
+- Scénario historique de base: `earth-2010` (départ en 2010).
+- Boucle de tour type stratégie: soumettre jusqu'à 3 ordres, puis résoudre le tour.
+- Tick déterministe avec influence des voisins + exécution des ordres planifiés.
 - Bascule de contrôle territorial (owner) en situation de crise.
 - Feed d'événements (auto + manuel).
-- Actions locales joueur sur territoire (`stabilize`, `invest`, `influence`, `disrupt`).
+- Actions locales joueur sur territoire (`stabilize`, `invest`, `influence`, `disrupt`) via file d'ordres.
 - Narration IA locale via backend (`/world/briefing`).
 - Fallback automatique mock si IA désactivée ou indisponible.
 
@@ -64,7 +66,10 @@ genesis-engine/
 - `POST /world/demo`
 - `POST /world/tick`
 - `POST /world/event`
-- `POST /world/action`
+- `POST /world/action` (legacy direct)
+- `POST /world/action/queue`
+- `POST /world/action/remove`
+- `POST /world/resolve`
 - `POST /world/briefing`
 - `GET /world/:worldId`
 

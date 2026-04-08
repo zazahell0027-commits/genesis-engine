@@ -1,4 +1,12 @@
-﻿import type { EventType, Faction, PlayerActionType, World, WorldCell, WorldEvent } from "@genesis/shared";
+import type {
+  EventType,
+  Faction,
+  PlayerActionType,
+  QueuedPlayerAction,
+  World,
+  WorldCell,
+  WorldEvent
+} from "@genesis/shared";
 import { getHistoricalSignalsForYear } from "./data/historicalSignals.js";
 
 function clamp(value: number, min = 0, max = 100): number {
@@ -137,6 +145,78 @@ export function canAffordAction(world: World, action: PlayerActionType): boolean
   return world.actionPoints >= actionCost(action);
 }
 
+function normalizeAction(action: PlayerActionType): PlayerActionType {
+  return action === "incite" ? "disrupt" : action;
+}
+
+function queueActionId(world: World, cellId: string, action: PlayerActionType): string {
+  return `${world.id}-qa-${world.tick}-${cellId}-${action}-${world.queuedActions.length + 1}`;
+}
+
+function hasTargetPermission(world: World, target: WorldCell): boolean {
+  if (!world.countryLocked || world.role !== "nation" || !world.playerFactionId) {
+    return true;
+  }
+  return target.owner === world.playerFactionId;
+}
+
+export function queuePlayerAction(world: World, cellId: string, action: PlayerActionType): World {
+  const target = world.cells.find((cell) => cell.id === cellId);
+  if (!target) {
+    return world;
+  }
+
+  if (!hasTargetPermission(world, target)) {
+    return world;
+  }
+
+  const normalizedAction = normalizeAction(action);
+  const cost = actionCost(normalizedAction);
+  if (world.queuedActions.length >= world.maxActionPoints || world.actionPoints < cost) {
+    return world;
+  }
+
+  const queued: QueuedPlayerAction = {
+    id: queueActionId(world, cellId, normalizedAction),
+    action: normalizedAction,
+    cellId,
+    tickQueued: world.tick
+  };
+
+  world.queuedActions.push(queued);
+  world.actionPoints = clamp(world.actionPoints - cost, 0, world.maxActionPoints);
+
+  pushEvent(world, createEvent(world, "alliance", {
+    title: "Order Queued",
+    description: `${normalizedAction.toUpperCase()} queued for ${territoryLabel(target)}.`,
+    targetCellId: target.id,
+    factionId: target.owner
+  }));
+
+  return world;
+}
+
+export function removeQueuedPlayerAction(world: World, queuedActionId: string): World {
+  const index = world.queuedActions.findIndex((action) => action.id === queuedActionId);
+  if (index < 0) {
+    return world;
+  }
+
+  const [removed] = world.queuedActions.splice(index, 1);
+  const refund = actionCost(removed.action);
+  world.actionPoints = clamp(world.actionPoints + refund, 0, world.maxActionPoints);
+
+  const target = world.cells.find((cell) => cell.id === removed.cellId);
+  pushEvent(world, createEvent(world, "discovery", {
+    title: "Order Removed",
+    description: `${removed.action.toUpperCase()} removed from plan${target ? ` for ${territoryLabel(target)}` : ""}.`,
+    targetCellId: removed.cellId,
+    factionId: target?.owner
+  }));
+
+  return world;
+}
+
 function pickHistoricalTargets(world: World, cells: WorldCell[], count: number, salt: string): WorldCell[] {
   if (cells.length <= count) return [...cells];
 
@@ -270,27 +350,38 @@ export function triggerWorldEvent(world: World, requestedType?: EventType): Worl
   return world;
 }
 
-export function applyPlayerAction(world: World, cellId: string, action: PlayerActionType): World {
+export function applyPlayerAction(
+  world: World,
+  cellId: string,
+  action: PlayerActionType,
+  options?: { skipCost?: boolean; source?: "direct" | "queued" }
+): World {
   const target = world.cells.find((cell) => cell.id === cellId);
   if (!target) {
     return world;
   }
 
-  const normalizedAction: PlayerActionType = action === "incite" ? "disrupt" : action;
+  const normalizedAction: PlayerActionType = normalizeAction(action);
   const cost = actionCost(normalizedAction);
-  if (world.actionPoints < cost) {
+  if (!options?.skipCost && world.actionPoints < cost) {
     return world;
   }
 
-  world.actionPoints = clamp(world.actionPoints - cost, 0, world.maxActionPoints);
+  if (!options?.skipCost) {
+    world.actionPoints = clamp(world.actionPoints - cost, 0, world.maxActionPoints);
+  }
+
+  const fromQueue = options?.source === "queued";
 
   if (normalizedAction === "stabilize") {
     target.stability = clamp(target.stability + 9);
     target.tension = clamp(target.tension - 6);
 
     pushEvent(world, createEvent(world, "alliance", {
-      title: "Local Stabilization",
-      description: `Intervention calms ${territoryLabel(target)}.`,
+      title: fromQueue ? "Planned Stabilization" : "Local Stabilization",
+      description: fromQueue
+        ? `Planned order calms ${territoryLabel(target)}.`
+        : `Intervention calms ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -300,8 +391,10 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
     target.tension = clamp(target.tension + 1);
 
     pushEvent(world, createEvent(world, "discovery", {
-      title: "Economic Investment",
-      description: `Investment boosts production in ${territoryLabel(target)}.`,
+      title: fromQueue ? "Planned Investment" : "Economic Investment",
+      description: fromQueue
+        ? `Planned funding boosts production in ${territoryLabel(target)}.`
+        : `Investment boosts production in ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -315,16 +408,20 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
       target.tension = clamp(target.tension + 5);
 
       pushEvent(world, createEvent(world, "expansion", {
-        title: "Influence Shift",
-        description: `${territoryLabel(target)} shifts toward ${factionName(world, candidate.owner)}.`,
+        title: fromQueue ? "Planned Influence Shift" : "Influence Shift",
+        description: fromQueue
+          ? `Planned pressure shifts ${territoryLabel(target)} toward ${factionName(world, candidate.owner)}.`
+          : `${territoryLabel(target)} shifts toward ${factionName(world, candidate.owner)}.`,
         targetCellId: target.id,
         factionId: candidate.owner
       }));
     } else {
       target.stability = clamp(target.stability + 3);
       pushEvent(world, createEvent(world, "alliance", {
-        title: "Influence Attempt",
-        description: `Influence campaign in ${territoryLabel(target)} stabilizes local ties.`,
+        title: fromQueue ? "Planned Influence Attempt" : "Influence Attempt",
+        description: fromQueue
+          ? `Planned campaign in ${territoryLabel(target)} stabilizes local ties.`
+          : `Influence campaign in ${territoryLabel(target)} stabilizes local ties.`,
         targetCellId: target.id,
         factionId: target.owner
       }));
@@ -334,8 +431,10 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
     target.stability = clamp(target.stability - 7);
 
     pushEvent(world, createEvent(world, "troubles", {
-      title: "Provocation",
-      description: `A provocation inflames ${territoryLabel(target)}.`,
+      title: fromQueue ? "Planned Provocation" : "Provocation",
+      description: fromQueue
+        ? `A planned provocation inflames ${territoryLabel(target)}.`
+        : `A provocation inflames ${territoryLabel(target)}.`,
       targetCellId: target.id,
       factionId: target.owner
     }));
@@ -343,6 +442,28 @@ export function applyPlayerAction(world: World, cellId: string, action: PlayerAc
 
   updateFactionStats(world);
   return world;
+}
+
+export function resolveWorldTurn(world: World): World {
+  const queued = [...world.queuedActions];
+  world.queuedActions = [];
+
+  for (const planned of queued) {
+    applyPlayerAction(world, planned.cellId, planned.action, { skipCost: true, source: "queued" });
+  }
+
+  const result = tickWorld(world);
+  result.actionPoints = result.maxActionPoints;
+
+  pushEvent(result, createEvent(result, "alliance", {
+    title: "Turn Resolved",
+    description:
+      queued.length > 0
+        ? `${queued.length} planned actions were executed before simulation updates.`
+        : "No planned actions submitted. Simulation advanced naturally."
+  }));
+
+  return result;
 }
 
 export function tickWorld(world: World): World {
@@ -368,13 +489,13 @@ export function tickWorld(world: World): World {
     let tensionDelta = trendToward(before.tension, neighborTensionAvg) + (noise > 0 ? 1 : noise < 0 ? -1 : 0);
     let stabilityDelta = (before.tension >= 62 ? -2 : 1) + (neighborTensionAvg >= 68 ? -1 : 0);
 
-    if (world.kind === "historical" && world.year >= 1912 && world.year <= 1918) {
-      if (cell.continent === "Europe" || cell.continent === "Asia") {
+    if (world.kind === "historical" && world.year >= 2011 && world.year <= 2015) {
+      if (cell.continent === "Africa" || cell.continent === "Asia") {
         tensionDelta += 1;
       }
     }
 
-    if (world.kind === "historical" && world.year >= 1920 && world.year <= 1926) {
+    if (world.kind === "historical" && world.year >= 2017 && world.year <= 2019) {
       stabilityDelta += 1;
     }
 

@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: #101828;
   background: radial-gradient(circle at 12% 8%, #f8fbff 0%, #f3f6fb 48%, #edf2f8 100%);
@@ -314,6 +314,34 @@ body {
 
 .impact-block {
   margin-top: 10px;
+}
+
+.queue-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.queued-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.queued-row p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.queued-row button {
+  border: 1px solid #98a2b3;
+  background: #fff;
+  color: #344054;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
 }
 
 .delta.up {

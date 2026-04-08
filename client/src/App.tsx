@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   HISTORICAL_START_COUNTRIES,
   type CreateWorldInput,
@@ -11,11 +11,12 @@ import {
   type WorldCell
 } from "@genesis/shared";
 import {
-  applyPlayerAction,
   createDemoWorld,
   createWorld,
   getWorldBriefing,
-  tickWorld,
+  queuePlayerAction as queuePlayerActionRequest,
+  removeQueuedPlayerAction as removeQueuedPlayerActionRequest,
+  resolveWorldTurn,
   triggerWorldEvent,
   type WorldBriefing
 } from "./api";
@@ -106,6 +107,14 @@ function eventTypeLabel(type: EventType): string {
   return "Decouverte";
 }
 
+function playerActionLabel(action: "stabilize" | "invest" | "influence" | "disrupt" | "incite"): string {
+  if (action === "stabilize") return "Stabiliser";
+  if (action === "invest") return "Investir";
+  if (action === "influence") return "Influencer";
+  if (action === "incite") return "Perturber";
+  return "Perturber";
+}
+
 function getOwnerColor(world: World, ownerId: string): string {
   const ownerIndex = world.factions.findIndex((faction) => faction.id === ownerId);
   return ownerPalette[(ownerIndex + ownerPalette.length) % ownerPalette.length] ?? "#334155";
@@ -132,7 +141,7 @@ export default function App(): React.JSX.Element {
   const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
   const [mapLens, setMapLens] = useState<MapLens>("control");
   const [form, setForm] = useState<CreateFormState>({
-    name: "Genesis Demo",
+    name: "Genesis Earth 2010",
     kind: "historical",
     complexity: "medium",
     role: "nation",
@@ -150,6 +159,11 @@ export default function App(): React.JSX.Element {
     if (!world.countryLocked || world.role !== "nation" || !world.playerFactionId) return true;
     return selectedCell.owner === world.playerFactionId;
   }, [selectedCell, world]);
+
+  const canQueueMoreActions = useMemo(() => {
+    if (!world) return false;
+    return world.queuedActions.length < world.maxActionPoints && world.actionPoints > 0;
+  }, [world]);
 
   const worldSummary = useMemo(() => {
     if (!world) return null;
@@ -252,14 +266,14 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  async function handleTick(): Promise<void> {
+  async function handleResolveTurn(): Promise<void> {
     if (!world) return;
 
     setLoading(true);
     setError(null);
     try {
       const beforeImpact = selectedCellId ? snapshotCell(world, selectedCellId) : null;
-      const updated = await tickWorld(world.id);
+      const updated = await resolveWorldTurn(world.id);
       setWorld(updated);
       setBriefing((prev) => (prev ? { ...prev, tick: updated.tick } : null));
       if (beforeImpact) {
@@ -267,7 +281,7 @@ export default function App(): React.JSX.Element {
         if (afterImpact) {
           setLastImpact({
             source: "tick",
-            actionLabel: "Tick",
+            actionLabel: "Tour resolu",
             before: beforeImpact,
             after: afterImpact
           });
@@ -299,35 +313,30 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  async function handlePlayerAction(action: "stabilize" | "invest" | "influence" | "disrupt"): Promise<void> {
+  async function handleQueueAction(action: "stabilize" | "invest" | "influence" | "disrupt"): Promise<void> {
     if (!world || !selectedCell) return;
 
     setLoading(true);
     setError(null);
     try {
-      const beforeImpact = snapshotCell(world, selectedCell.id);
-      const updated = await applyPlayerAction(world.id, selectedCell.id, action);
+      const updated = await queuePlayerActionRequest(world.id, selectedCell.id, action);
       setWorld(updated);
-      if (beforeImpact) {
-        const afterImpact = snapshotCell(updated, beforeImpact.cellId);
-        if (afterImpact) {
-          const label = action === "stabilize"
-            ? "Stabiliser"
-            : action === "invest"
-              ? "Investir"
-              : action === "influence"
-                ? "Influencer"
-                : "Perturber";
+      setLastImpact(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-          setLastImpact({
-            source: "action",
-            actionLabel: label,
-            before: beforeImpact,
-            after: afterImpact
-          });
-        }
-      }
-      await refreshBriefing(updated.id);
+  async function handleRemoveQueuedAction(queuedActionId: string): Promise<void> {
+    if (!world) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const updated = await removeQueuedPlayerActionRequest(world.id, queuedActionId);
+      setWorld(updated);
+      setLastImpact(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -445,7 +454,7 @@ export default function App(): React.JSX.Element {
           )}
         </div>
         <div className="actions">
-          <button type="button" onClick={handleTick} disabled={loading || !world}>Avancer le temps</button>
+          <button type="button" onClick={handleResolveTurn} disabled={loading || !world}>Resoudre le tour</button>
           <button type="button" onClick={handleTriggerEvent} disabled={loading || !world}>Declencher un evenement</button>
           <button
             type="button"
@@ -463,7 +472,7 @@ export default function App(): React.JSX.Element {
 
       {world && (
         <p className="action-points">
-          Points d'action: {world.actionPoints}/{world.maxActionPoints} (1 action territoire = 1 point, +1 par tick)
+          Ordres restants: {world.actionPoints}/{world.maxActionPoints} (maximum 3 ordres par tour en mode nation)
         </p>
       )}
 
@@ -488,7 +497,7 @@ export default function App(): React.JSX.Element {
             <p>{world.factions.length}</p>
           </article>
           <article>
-            <h3>Points d'action</h3>
+            <h3>Ordres restants</h3>
             <p>{world.actionPoints}/{world.maxActionPoints}</p>
           </article>
         </section>
@@ -555,29 +564,29 @@ export default function App(): React.JSX.Element {
                 <div className="actions territory-actions">
                   <button
                     type="button"
-                    onClick={() => handlePlayerAction("stabilize")}
-                    disabled={loading || world.actionPoints <= 0 || !canActOnSelectedTerritory}
+                    onClick={() => handleQueueAction("stabilize")}
+                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
                   >
                     Stabiliser
                   </button>
                   <button
                     type="button"
-                    onClick={() => handlePlayerAction("invest")}
-                    disabled={loading || world.actionPoints <= 0 || !canActOnSelectedTerritory}
+                    onClick={() => handleQueueAction("invest")}
+                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
                   >
                     Investir
                   </button>
                   <button
                     type="button"
-                    onClick={() => handlePlayerAction("influence")}
-                    disabled={loading || world.actionPoints <= 0 || !canActOnSelectedTerritory}
+                    onClick={() => handleQueueAction("influence")}
+                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
                   >
                     Influencer
                   </button>
                   <button
                     type="button"
-                    onClick={() => handlePlayerAction("disrupt")}
-                    disabled={loading || world.actionPoints <= 0 || !canActOnSelectedTerritory}
+                    onClick={() => handleQueueAction("disrupt")}
+                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
                   >
                     Perturber
                   </button>
@@ -587,7 +596,11 @@ export default function App(): React.JSX.Element {
                     Action bloquee: ce territoire n'est pas controle par {world.playerCountry}.
                   </p>
                 )}
-                {world.actionPoints <= 0 && <p className="action-warning">Plus de points d'action. Lance un tick.</p>}
+                {!canQueueMoreActions && (
+                  <p className="action-warning">
+                    File d'ordres pleine. Resous le tour pour appliquer les actions.
+                  </p>
+                )}
               </div>
             ) : (
               <p>Selectionne une zone de la carte.</p>
@@ -612,6 +625,32 @@ export default function App(): React.JSX.Element {
                 )}
               </div>
             )}
+
+            <h3>Ordres du tour</h3>
+            <div className="details-block queue-block">
+              {world.queuedActions.length === 0 ? (
+                <p>Aucun ordre soumis pour ce tour.</p>
+              ) : (
+                world.queuedActions.map((queued) => {
+                  const target = world.cells.find((cell) => cell.id === queued.cellId);
+                  return (
+                    <div key={queued.id} className="queued-row">
+                      <p>
+                        {playerActionLabel(queued.action)} {"->"}{" "}
+                        {target ? `${target.country} (${target.x}, ${target.y})` : queued.cellId}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveQueuedAction(queued.id)}
+                        disabled={loading}
+                      >
+                        Retirer
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
 
             <h3>Continents</h3>
             <div className="details-block continent-list">

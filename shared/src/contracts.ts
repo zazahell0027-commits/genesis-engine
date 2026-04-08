@@ -1,4 +1,4 @@
-﻿export type RoleType = "hero" | "faction" | "nation" | "gm";
+export type RoleType = "hero" | "faction" | "nation" | "gm";
 export type WorldKind = "historical" | "fictional";
 export type PoliticalComplexity = "low" | "medium" | "high";
 export type MapSize = "small" | "medium" | "large";
@@ -8,12 +8,12 @@ export type PlayerActionType = "stabilize" | "invest" | "influence" | "disrupt" 
 export const HISTORICAL_START_COUNTRIES = [
   "France",
   "United Kingdom",
-  "German Empire",
-  "Russian Empire",
+  "Germany",
+  "Russia",
   "United States",
   "Japan",
-  "Ottoman Heartland",
-  "Qing China",
+  "Turkey",
+  "China",
   "Brazil",
   "Egypt"
 ] as const;
@@ -49,6 +49,13 @@ export type WorldEvent = {
   factionId?: string;
 };
 
+export type QueuedPlayerAction = {
+  id: string;
+  action: PlayerActionType;
+  cellId: string;
+  tickQueued: number;
+};
+
 export type World = {
   id: string;
   name: string;
@@ -66,6 +73,7 @@ export type World = {
   playerFactionId?: string;
   startCellId?: string;
   countryLocked: boolean;
+  queuedActions: QueuedPlayerAction[];
   cells: WorldCell[];
   factions: Faction[];
   events: WorldEvent[];

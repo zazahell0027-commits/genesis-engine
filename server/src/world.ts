@@ -1,4 +1,4 @@
-﻿import {
+import {
   HISTORICAL_START_COUNTRIES,
   type CreateWorldInput,
   type Faction,
@@ -14,11 +14,11 @@
 const worlds = new Map<string, World>();
 
 const historicalFactionNames = [
-  "Entente League",
-  "Central Compact",
-  "Maritime Coalition",
-  "Industrial Union",
-  "Continental Front"
+  "Atlantic Accord",
+  "Eurasian Compact",
+  "Pacific Forum",
+  "South Coalition",
+  "Non-Aligned Front"
 ];
 
 const fictionalFactionNames = [
@@ -34,12 +34,12 @@ const historicalStartCountrySet = new Set<string>(HISTORICAL_START_COUNTRIES);
 const startCountryAnchors: Record<string, { continent: string; lon: number; lat: number }> = {
   France: { continent: "Europe", lon: 2, lat: 46 },
   "United Kingdom": { continent: "Europe", lon: -2, lat: 54 },
-  "German Empire": { continent: "Europe", lon: 10, lat: 51 },
-  "Russian Empire": { continent: "Europe", lon: 37, lat: 56 },
+  Germany: { continent: "Europe", lon: 10, lat: 51 },
+  Russia: { continent: "Europe", lon: 37, lat: 56 },
   "United States": { continent: "North America", lon: -98, lat: 39 },
   Japan: { continent: "Asia", lon: 138, lat: 37 },
-  "Ottoman Heartland": { continent: "Asia", lon: 35, lat: 39 },
-  "Qing China": { continent: "Asia", lon: 104, lat: 35 },
+  Turkey: { continent: "Asia", lon: 35, lat: 39 },
+  China: { continent: "Asia", lon: 104, lat: 35 },
   Brazil: { continent: "South America", lon: -52, lat: -10 },
   Egypt: { continent: "Africa", lon: 30, lat: 26 }
 };
@@ -173,8 +173,8 @@ function historicalGeoFromCell(x: number, y: number, width: number, height: numb
   if (inBox(lon, lat, -15, 45, 35, 72)) {
     if (lon < -2) return { continent: "Europe", country: "United Kingdom" };
     if (lon < 12) return { continent: "Europe", country: "France" };
-    if (lon < 25) return { continent: "Europe", country: "German Empire" };
-    return { continent: "Europe", country: "Russian Empire" };
+    if (lon < 25) return { continent: "Europe", country: "Germany" };
+    return { continent: "Europe", country: "Russia" };
   }
 
   if (inBox(lon, lat, -20, 55, -35, 35)) {
@@ -185,8 +185,8 @@ function historicalGeoFromCell(x: number, y: number, width: number, height: numb
   }
 
   if (inBox(lon, lat, 45, 160, 5, 78)) {
-    if (lon < 70) return { continent: "Asia", country: "Ottoman Heartland" };
-    if (lon < 110) return { continent: "Asia", country: "Qing China" };
+    if (lon < 70) return { continent: "Asia", country: "Turkey" };
+    if (lon < 110) return { continent: "Asia", country: "China" };
     if (lon < 130) return { continent: "Asia", country: "Korean Peninsula" };
     return { continent: "Asia", country: "Japan" };
   }
@@ -341,16 +341,16 @@ function createNationStartEvent(world: World): WorldEvent | null {
 }
 
 function scenarioIdFromKind(kind: WorldKind): string {
-  return kind === "historical" ? "earth-1910" : "frontier-sandbox";
+  return kind === "historical" ? "earth-2010" : "frontier-sandbox";
 }
 
 function baseYearFromKind(kind: WorldKind): number {
-  return kind === "historical" ? 1910 : 2200;
+  return kind === "historical" ? 2010 : 2200;
 }
 
 function actionBudgetFromRole(role: RoleType): { actionPoints: number; maxActionPoints: number } {
   if (role === "gm") return { actionPoints: 5, maxActionPoints: 5 };
-  if (role === "nation") return { actionPoints: 4, maxActionPoints: 4 };
+  if (role === "nation") return { actionPoints: 3, maxActionPoints: 3 };
   if (role === "faction") return { actionPoints: 3, maxActionPoints: 3 };
   return { actionPoints: 2, maxActionPoints: 2 };
 }
@@ -393,6 +393,7 @@ export function createWorld(input: CreateWorldInput): World {
     playerFactionId: undefined,
     startCellId: undefined,
     countryLocked: false,
+    queuedActions: [],
     cells,
     factions,
     events: []
@@ -432,7 +433,7 @@ export function createWorld(input: CreateWorldInput): World {
 
 export function createDemoWorld(): World {
   return createWorld({
-    name: "Genesis Earth 1910",
+    name: "Genesis Earth 2010",
     kind: "historical",
     complexity: "medium",
     mapSize: "medium",

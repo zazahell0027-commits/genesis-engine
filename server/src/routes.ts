@@ -1,7 +1,15 @@
-﻿import { HISTORICAL_START_COUNTRIES, type EventType, type PlayerActionType, type World } from "@genesis/shared";
+import { HISTORICAL_START_COUNTRIES, type EventType, type PlayerActionType, type World } from "@genesis/shared";
 import type { Request, Response } from "express";
 import type { AIProvider } from "./ai/types.js";
-import { applyPlayerAction, canAffordAction, tickWorld, triggerWorldEvent } from "./simulation.js";
+import {
+  applyPlayerAction,
+  canAffordAction,
+  queuePlayerAction,
+  removeQueuedPlayerAction,
+  resolveWorldTurn,
+  tickWorld,
+  triggerWorldEvent
+} from "./simulation.js";
 import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
 
 const historicalCountrySet = new Set<string>(HISTORICAL_START_COUNTRIES);
@@ -25,6 +33,31 @@ function latestEventText(world: World): string | undefined {
 
 function isHistoricalStartCountry(value: unknown): boolean {
   return typeof value === "string" && historicalCountrySet.has(value);
+}
+
+function isAllowedAction(value: unknown): value is PlayerActionType {
+  return typeof value === "string" && ["stabilize", "invest", "influence", "disrupt", "incite"].includes(value);
+}
+
+function actionTargetGuard(world: World, cellId: string): { ok: true } | { ok: false; status: number; body: object } {
+  const target = world.cells.find((cell) => cell.id === cellId);
+  if (!target) {
+    return { ok: false, status: 404, body: { error: "Cell not found" } };
+  }
+
+  if (world.countryLocked && world.role === "nation" && world.playerFactionId && target.owner !== world.playerFactionId) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        error: `Territory not controlled by your nation (${world.playerCountry ?? "locked country"}).`,
+        playerFactionId: world.playerFactionId,
+        playerCountry: world.playerCountry
+      }
+    };
+  }
+
+  return { ok: true };
 }
 
 export function registerRoutes(app: import("express").Express, ai: AIProvider): void {
@@ -104,17 +137,17 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     res.json(updated);
   });
 
-  app.post("/world/action", (req: Request, res: Response) => {
+  app.post("/world/action/queue", (req: Request, res: Response) => {
     const worldId = String(req.body?.worldId ?? "").trim();
     const cellId = String(req.body?.cellId ?? "").trim();
-    const action = req.body?.action as PlayerActionType | undefined;
+    const action = req.body?.action;
 
     if (!worldId || !cellId || !action) {
       res.status(400).json({ error: "worldId, cellId and action are required" });
       return;
     }
 
-    if (!["stabilize", "invest", "influence", "disrupt", "incite"].includes(action)) {
+    if (!isAllowedAction(action)) {
       res.status(400).json({ error: "Invalid action" });
       return;
     }
@@ -125,18 +158,88 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       return;
     }
 
-    const target = world.cells.find((cell) => cell.id === cellId);
-    if (!target) {
-      res.status(404).json({ error: "Cell not found" });
+    const guard = actionTargetGuard(world, cellId);
+    if (!guard.ok) {
+      res.status(guard.status).json(guard.body);
       return;
     }
 
-    if (world.countryLocked && world.role === "nation" && world.playerFactionId && target.owner !== world.playerFactionId) {
-      res.status(403).json({
-        error: `Territory not controlled by your nation (${world.playerCountry ?? "locked country"}).`,
-        playerFactionId: world.playerFactionId,
-        playerCountry: world.playerCountry
+    if (!canAffordAction(world, action)) {
+      res.status(409).json({
+        error: "Not enough action points",
+        actionPoints: world.actionPoints,
+        maxActionPoints: world.maxActionPoints
       });
+      return;
+    }
+
+    const updated = queuePlayerAction(world, cellId, action);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/action/remove", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const queuedActionId = String(req.body?.queuedActionId ?? "").trim();
+
+    if (!worldId || !queuedActionId) {
+      res.status(400).json({ error: "worldId and queuedActionId are required" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const updated = removeQueuedPlayerAction(world, queuedActionId);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/resolve", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    if (!worldId) {
+      res.status(400).json({ error: "worldId is required" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const updated = resolveWorldTurn(world);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/action", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const cellId = String(req.body?.cellId ?? "").trim();
+    const action = req.body?.action;
+
+    if (!worldId || !cellId || !action) {
+      res.status(400).json({ error: "worldId, cellId and action are required" });
+      return;
+    }
+
+    if (!isAllowedAction(action)) {
+      res.status(400).json({ error: "Invalid action" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const guard = actionTargetGuard(world, cellId);
+    if (!guard.ok) {
+      res.status(guard.status).json(guard.body);
       return;
     }
 
