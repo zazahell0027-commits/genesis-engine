@@ -11,6 +11,8 @@ import type {
 } from "@genesis/shared";
 import { getHistoricalSignalsForYear } from "./data/historicalSignals.js";
 
+export type JumpStep = "week" | "month" | "quarter" | "year";
+
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -77,6 +79,28 @@ function pushEvent(world: World, event: WorldEvent): void {
   if (world.events.length > 80) {
     world.events = world.events.slice(0, 80);
   }
+}
+
+const operationalEventTitles = new Set<string>([
+  "Turn Resolved",
+  "Order Queued",
+  "Order Removed",
+  "National Command Submitted",
+  "Nation Selected"
+]);
+
+function isMajorEvent(event: WorldEvent): boolean {
+  return (
+    ["troubles", "alliance", "expansion", "crisis_local"].includes(event.type) &&
+    !operationalEventTitles.has(event.title)
+  );
+}
+
+function ticksForJumpStep(step: JumpStep): number {
+  if (step === "week") return 1;
+  if (step === "month") return 2;
+  if (step === "quarter") return 4;
+  return 12;
 }
 
 function territoryLabel(cell: WorldCell): string {
@@ -621,6 +645,81 @@ export function resolveWorldTurn(world: World): World {
   result.lastResolutionReport = report;
 
   return result;
+}
+
+export function jumpWorld(world: World, step: JumpStep): World {
+  const originTick = world.tick;
+  const originYear = world.year;
+  const ticksToAdvance = Math.max(1, ticksForJumpStep(step));
+
+  const resolved = resolveWorldTurn(world);
+  for (let i = 1; i < ticksToAdvance; i += 1) {
+    tickWorld(resolved);
+  }
+
+  resolved.actionPoints = resolved.maxActionPoints;
+
+  pushEvent(resolved, createEvent(resolved, "discovery", {
+    title: "Time Jump Complete",
+    description: `Jump ${step} applied: tick ${originTick} -> ${resolved.tick}, year ${originYear} -> ${resolved.year}.`
+  }));
+
+  if (resolved.lastResolutionReport) {
+    resolved.lastResolutionReport = {
+      ...resolved.lastResolutionReport,
+      tick: resolved.tick,
+      year: resolved.year,
+      highlights: [
+        ...resolved.lastResolutionReport.highlights,
+        `Saut temporel ${step}: +${ticksToAdvance} ticks.`
+      ].slice(0, 8)
+    };
+  }
+
+  return resolved;
+}
+
+export function jumpToNextMajorEvent(world: World): World {
+  const originTick = world.tick;
+  const originYear = world.year;
+  const maxTicks = 24;
+
+  const resolved = resolveWorldTurn(world);
+  let found = resolved.events.find((event) => event.tick === resolved.tick && isMajorEvent(event));
+  let loops = 1;
+
+  while (!found && loops < maxTicks) {
+    tickWorld(resolved);
+    loops += 1;
+    found = resolved.events.find((event) => event.tick === resolved.tick && isMajorEvent(event));
+  }
+
+  resolved.actionPoints = resolved.maxActionPoints;
+
+  pushEvent(resolved, createEvent(resolved, found ? found.type : "discovery", {
+    title: "Next Major Event Reached",
+    description: found
+      ? `Major event reached after ${loops} ticks: ${found.title}. (tick ${originTick} -> ${resolved.tick}, year ${originYear} -> ${resolved.year})`
+      : `No major event detected in ${loops} ticks. World advanced to tick ${resolved.tick}, year ${resolved.year}.`,
+    targetCellId: found?.targetCellId,
+    factionId: found?.factionId
+  }));
+
+  if (resolved.lastResolutionReport) {
+    resolved.lastResolutionReport = {
+      ...resolved.lastResolutionReport,
+      tick: resolved.tick,
+      year: resolved.year,
+      highlights: [
+        ...resolved.lastResolutionReport.highlights,
+        found
+          ? `Evenement majeur trouve: ${found.title} apres ${loops} ticks.`
+          : `Aucun evenement majeur detecte apres ${loops} ticks.`
+      ].slice(0, 8)
+    };
+  }
+
+  return resolved;
 }
 
 export function tickWorld(world: World): World {

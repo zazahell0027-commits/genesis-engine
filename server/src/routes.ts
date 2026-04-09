@@ -4,6 +4,9 @@ import type { AIProvider } from "./ai/types.js";
 import {
   applyPlayerAction,
   canAffordAction,
+  type JumpStep,
+  jumpToNextMajorEvent,
+  jumpWorld,
   queuePlayerAction,
   removeQueuedPlayerAction,
   removeTurnCommand,
@@ -33,6 +36,58 @@ function latestEventText(world: World): string | undefined {
 
 function isAllowedAction(value: unknown): value is PlayerActionType {
   return typeof value === "string" && ["stabilize", "invest", "influence", "disrupt", "incite"].includes(value);
+}
+
+function isJumpStep(value: unknown): value is JumpStep {
+  return typeof value === "string" && ["week", "month", "quarter", "year"].includes(value);
+}
+
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function averageByCountry(world: World, country: string): { avgStability: number; avgTension: number } | null {
+  const target = normalizeText(country);
+  const matches = world.cells.filter((cell) => normalizeText(cell.country) === target);
+  if (matches.length === 0) return null;
+
+  const avgStability = Math.round(matches.reduce((sum, cell) => sum + cell.stability, 0) / matches.length);
+  const avgTension = Math.round(matches.reduce((sum, cell) => sum + cell.tension, 0) / matches.length);
+  return { avgStability, avgTension };
+}
+
+function buildDiplomacyReply(world: World, targetCountry: string, message: string): {
+  stance: "friendly" | "neutral" | "hostile";
+  reply: string;
+} {
+  const normalized = normalizeText(message);
+  const countryStats = averageByCountry(world, targetCountry);
+
+  const aggression = /\b(guerre|attaque|ultimatum|sanction|annex|menace)\b/.test(normalized);
+  const cooperation = /\b(alliance|accord|paix|commerce|cooperation|pacte)\b/.test(normalized);
+  const avgTension = countryStats?.avgTension ?? 50;
+
+  if (aggression || avgTension >= 68) {
+    return {
+      stance: "hostile",
+      reply: `${targetCountry} rejette votre ligne et renforce sa posture defensive. Reponse probable: contre-pression diplomatique et mobilisation limitee.`
+    };
+  }
+
+  if (cooperation || avgTension <= 38) {
+    return {
+      stance: "friendly",
+      reply: `${targetCountry} accepte d'ouvrir un canal de negociation. Reponse probable: accord graduel sur commerce, securite et stabilisation regionale.`
+    };
+  }
+
+  return {
+    stance: "neutral",
+    reply: `${targetCountry} reste prudent. Reponse probable: discussion technique sans engagement immediat, demande de garanties concretes.`
+  };
 }
 
 function actionTargetGuard(world: World, cellId: string): { ok: true } | { ok: false; status: number; body: object } {
@@ -259,6 +314,82 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const updated = resolveWorldTurn(world);
     saveWorld(updated);
     res.json(updated);
+  });
+
+  app.post("/world/jump", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const step = req.body?.step;
+
+    if (!worldId) {
+      res.status(400).json({ error: "worldId is required" });
+      return;
+    }
+
+    if (!isJumpStep(step)) {
+      res.status(400).json({ error: "step must be one of: week, month, quarter, year" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const updated = jumpWorld(world, step);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/jump/major-event", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    if (!worldId) {
+      res.status(400).json({ error: "worldId is required" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const updated = jumpToNextMajorEvent(world);
+    saveWorld(updated);
+    res.json(updated);
+  });
+
+  app.post("/world/diplomacy/send", (req: Request, res: Response) => {
+    const worldId = String(req.body?.worldId ?? "").trim();
+    const targetCountry = String(req.body?.targetCountry ?? "").trim();
+    const message = String(req.body?.message ?? "").trim();
+
+    if (!worldId || !targetCountry || !message) {
+      res.status(400).json({ error: "worldId, targetCountry and message are required" });
+      return;
+    }
+
+    const world = getWorld(worldId);
+    if (!world) {
+      res.status(404).json({ error: "World not found" });
+      return;
+    }
+
+    const { stance, reply } = buildDiplomacyReply(world, targetCountry, message);
+
+    world.events.unshift({
+      id: `${world.id}-evt-diplo-${world.tick}-${world.events.length + 1}`,
+      tick: world.tick,
+      type: stance === "hostile" ? "troubles" : "alliance",
+      title: `Diplomatic Exchange: ${targetCountry}`,
+      description: `${message.slice(0, 140)} | Reply: ${reply}`
+    });
+    if (world.events.length > 80) {
+      world.events = world.events.slice(0, 80);
+    }
+
+    saveWorld(world);
+    res.json({ targetCountry, stance, reply, tick: world.tick, year: world.year });
   });
 
   app.post("/world/action", (req: Request, res: Response) => {

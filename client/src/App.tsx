@@ -12,13 +12,17 @@ import {
 import {
   createDemoWorld,
   createWorld,
+  fetchWorld,
   getWorldBriefing,
+  jumpToMajorEvent,
+  jumpWorld,
   queuePlayerAction as queuePlayerActionRequest,
   removeQueuedPlayerAction as removeQueuedPlayerActionRequest,
   removeTurnCommand as removeTurnCommandRequest,
-  resolveWorldTurn,
+  sendDiplomacyMessage,
   submitTurnCommand as submitTurnCommandRequest,
   triggerWorldEvent,
+  type JumpStep,
   type WorldBriefing
 } from "./api";
 import rawWorldGeo from "./assets/world_countries_slim.json";
@@ -65,6 +69,16 @@ type TerritoryImpact = {
   actionLabel: string;
   before: TerritorySnapshot;
   after: TerritorySnapshot;
+};
+
+type DiplomacyExchange = {
+  id: string;
+  targetCountry: string;
+  message: string;
+  reply: string;
+  stance: "friendly" | "neutral" | "hostile";
+  tick: number;
+  year: number;
 };
 
 const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
@@ -173,6 +187,10 @@ export default function App(): React.JSX.Element {
   const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
   const [mapLens, setMapLens] = useState<MapLens>("control");
   const [commandText, setCommandText] = useState("");
+  const [jumpStep, setJumpStep] = useState<JumpStep>("month");
+  const [diplomacyTarget, setDiplomacyTarget] = useState("");
+  const [diplomacyText, setDiplomacyText] = useState("");
+  const [diplomacyLog, setDiplomacyLog] = useState<DiplomacyExchange[]>([]);
   const [countrySearch, setCountrySearch] = useState("");
   const [form, setForm] = useState<CreateFormState>({
     name: "Genesis Earth 2010",
@@ -195,6 +213,23 @@ export default function App(): React.JSX.Element {
 
     return list;
   }, [countrySearch, form.startCountry]);
+
+  const diplomacyCountries = useMemo(() => {
+    if (!world) return [] as string[];
+    const unique = new Set(world.cells.map((cell) => cell.country));
+    return [...unique].sort((a, b) => a.localeCompare(b));
+  }, [world]);
+
+  const effectiveDiplomacyTarget = useMemo(() => {
+    if (!world) return "";
+    if (diplomacyTarget && diplomacyCountries.includes(diplomacyTarget)) {
+      return diplomacyTarget;
+    }
+    if (world.playerCountry && diplomacyCountries.includes(world.playerCountry)) {
+      return world.playerCountry;
+    }
+    return diplomacyCountries[0] ?? "";
+  }, [diplomacyCountries, diplomacyTarget, world]);
 
   const selectedCell = useMemo(() => {
     if (!world || !selectedCellId) return null;
@@ -273,6 +308,9 @@ export default function App(): React.JSX.Element {
   async function hydrateWorld(created: World): Promise<void> {
     setWorld(created);
     setSelectedCellId(created.startCellId ?? created.cells[0]?.id ?? null);
+    setDiplomacyTarget(created.playerCountry ?? created.cells[0]?.country ?? "");
+    setDiplomacyText("");
+    setDiplomacyLog([]);
     setViewMode("world");
     setShowJson(false);
     await refreshBriefing(created.id);
@@ -317,14 +355,14 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  async function handleResolveTurn(): Promise<void> {
+  async function handleJumpForward(): Promise<void> {
     if (!world) return;
 
     setLoading(true);
     setError(null);
     try {
       const beforeImpact = selectedCellId ? snapshotCell(world, selectedCellId) : null;
-      const updated = await resolveWorldTurn(world.id);
+      const updated = await jumpWorld(world.id, jumpStep);
       setWorld(updated);
       setBriefing((prev) => (prev ? { ...prev, tick: updated.tick } : null));
       await refreshBriefing(updated.id);
@@ -333,7 +371,38 @@ export default function App(): React.JSX.Element {
         if (afterImpact) {
           setLastImpact({
             source: "tick",
-            actionLabel: "Tour resolu",
+            actionLabel: `Saut ${jumpStep}`,
+            before: beforeImpact,
+            after: afterImpact
+          });
+        }
+      }
+      if (selectedCellId && !updated.cells.some((cell) => cell.id === selectedCellId)) {
+        setSelectedCellId(updated.startCellId ?? updated.cells[0]?.id ?? null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleJumpToMajorEvent(): Promise<void> {
+    if (!world) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const beforeImpact = selectedCellId ? snapshotCell(world, selectedCellId) : null;
+      const updated = await jumpToMajorEvent(world.id);
+      setWorld(updated);
+      await refreshBriefing(updated.id);
+      if (beforeImpact) {
+        const afterImpact = snapshotCell(updated, beforeImpact.cellId);
+        if (afterImpact) {
+          setLastImpact({
+            source: "tick",
+            actionLabel: "Next major event",
             before: beforeImpact,
             after: afterImpact
           });
@@ -423,6 +492,39 @@ export default function App(): React.JSX.Element {
       const updated = await removeTurnCommandRequest(world.id, commandId);
       setWorld(updated);
       setLastImpact(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSendDiplomacyMessage(): Promise<void> {
+    if (!world) return;
+    const text = diplomacyText.trim();
+    const target = effectiveDiplomacyTarget;
+    if (!text || !target) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await sendDiplomacyMessage(world.id, target, text);
+      setDiplomacyLog((prev) => [
+        {
+          id: `${world.id}-${Date.now()}`,
+          targetCountry: response.targetCountry,
+          message: text,
+          reply: response.reply,
+          stance: response.stance,
+          tick: response.tick,
+          year: response.year
+        },
+        ...prev
+      ].slice(0, 12));
+      setDiplomacyText("");
+      const updated = await fetchWorld(world.id);
+      setWorld(updated);
+      await refreshBriefing(updated.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -579,7 +681,21 @@ export default function App(): React.JSX.Element {
           )}
         </div>
         <div className="actions">
-          <button type="button" onClick={handleResolveTurn} disabled={loading || !world}>Resoudre le tour</button>
+          <label className="jump-control">
+            Saut
+            <select
+              value={jumpStep}
+              onChange={(event) => setJumpStep(event.target.value as JumpStep)}
+              disabled={loading || !world}
+            >
+              <option value="week">1 semaine</option>
+              <option value="month">1 mois</option>
+              <option value="quarter">1 trimestre</option>
+              <option value="year">1 an</option>
+            </select>
+          </label>
+          <button type="button" onClick={handleJumpForward} disabled={loading || !world}>Jump Forward</button>
+          <button type="button" onClick={handleJumpToMajorEvent} disabled={loading || !world}>Next Major Event</button>
           <button type="button" onClick={handleTriggerEvent} disabled={loading || !world}>Declencher un evenement</button>
           <button
             type="button"
@@ -718,6 +834,51 @@ export default function App(): React.JSX.Element {
                         </button>
                       )}
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <h3>Diplomatie texte</h3>
+            <div className="details-block diplomacy-panel">
+              <label>
+                Pays cible
+                <select
+                  value={effectiveDiplomacyTarget}
+                  onChange={(event) => setDiplomacyTarget(event.target.value)}
+                  disabled={loading || diplomacyCountries.length === 0}
+                >
+                  {diplomacyCountries.map((country) => (
+                    <option key={country} value={country}>{country}</option>
+                  ))}
+                </select>
+              </label>
+              <textarea
+                value={diplomacyText}
+                onChange={(event) => setDiplomacyText(event.target.value)}
+                placeholder="Ex: Proposer un pacte de non-agression et un corridor commercial sur 6 mois."
+                rows={3}
+                disabled={loading || !effectiveDiplomacyTarget}
+              />
+              <div className="actions command-actions">
+                <button
+                  type="button"
+                  onClick={handleSendDiplomacyMessage}
+                  disabled={loading || diplomacyText.trim().length === 0 || !effectiveDiplomacyTarget}
+                >
+                  Envoyer message diplomatique
+                </button>
+              </div>
+              {diplomacyLog.length > 0 && (
+                <div className="diplomacy-log">
+                  {diplomacyLog.map((entry) => (
+                    <article key={entry.id} className="diplomacy-item">
+                      <strong>
+                        {entry.targetCountry} | {entry.stance} | annee {entry.year} tick {entry.tick}
+                      </strong>
+                      <p>Vous: {entry.message}</p>
+                      <p>Reponse: {entry.reply}</p>
+                    </article>
                   ))}
                 </div>
               )}

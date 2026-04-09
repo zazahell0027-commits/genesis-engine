@@ -2,10 +2,20 @@ import type { CreateWorldInput, EventType, PlayerActionType, World } from "@gene
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
+export type JumpStep = "week" | "month" | "quarter" | "year";
+
 export type WorldBriefing = {
   provider: string;
   narrative: string;
   tick: number;
+};
+
+export type DiplomacyResponse = {
+  targetCountry: string;
+  stance: "friendly" | "neutral" | "hostile";
+  reply: string;
+  tick: number;
+  year: number;
 };
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -42,6 +52,14 @@ export async function createDemoWorld(): Promise<World> {
   return parseJson<World>(response);
 }
 
+export async function fetchWorld(worldId: string): Promise<World> {
+  const response = await fetch(`${API_BASE_URL}/world/${worldId}`, {
+    method: "GET"
+  });
+
+  return parseJson<World>(response);
+}
+
 export async function tickWorld(worldId: string): Promise<World> {
   const response = await fetch(`${API_BASE_URL}/world/tick`, {
     method: "POST",
@@ -54,6 +72,26 @@ export async function tickWorld(worldId: string): Promise<World> {
 
 export async function resolveWorldTurn(worldId: string): Promise<World> {
   const response = await fetch(`${API_BASE_URL}/world/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId })
+  });
+
+  return parseJson<World>(response);
+}
+
+export async function jumpWorld(worldId: string, step: JumpStep): Promise<World> {
+  const response = await fetch(`${API_BASE_URL}/world/jump`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId, step })
+  });
+
+  return parseJson<World>(response);
+}
+
+export async function jumpToMajorEvent(worldId: string): Promise<World> {
+  const response = await fetch(`${API_BASE_URL}/world/jump/major-event`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ worldId })
@@ -130,4 +168,18 @@ export async function removeTurnCommand(worldId: string, commandId: string): Pro
   });
 
   return parseJson<World>(response);
+}
+
+export async function sendDiplomacyMessage(
+  worldId: string,
+  targetCountry: string,
+  message: string
+): Promise<DiplomacyResponse> {
+  const response = await fetch(`${API_BASE_URL}/world/diplomacy/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ worldId, targetCountry, message })
+  });
+
+  return parseJson<DiplomacyResponse>(response);
 }
