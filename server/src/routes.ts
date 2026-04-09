@@ -1,114 +1,32 @@
-import type { EventType, PlayerActionType, World } from "@genesis/shared";
+﻿import type {
+  AdvisorResponse,
+  CreateGameInput,
+  DiplomacyInput,
+  JumpInput,
+  QueueOrderInput,
+  RemoveOrderInput
+} from "@genesis/shared";
 import type { Request, Response } from "express";
 import type { AIProvider } from "./ai/types.js";
-import {
-  applyPlayerAction,
-  canAffordAction,
-  type JumpStep,
-  jumpToNextMajorEvent,
-  jumpWorld,
-  queuePlayerAction,
-  removeQueuedPlayerAction,
-  removeTurnCommand,
-  resolveWorldTurn,
-  submitTurnCommand,
-  tickWorld,
-  triggerWorldEvent
-} from "./simulation.js";
-import { createDemoWorld, createWorld, getWorld, saveWorld } from "./world.js";
+import { jumpForward, jumpToMajorEvent, queueOrder, removeOrder, sendDiplomacyMessage } from "./simulation.js";
+import { getGame, listCountries, listScenarios, monthLabel, saveGame, createGame } from "./world.js";
 
-function average(values: number[]): number {
-  if (values.length === 0) return 0;
-  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+function ensureString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-function factionSummary(world: World): string {
-  return world.factions
-    .map((faction) => `${faction.name}(P${faction.power}/R${faction.resources})`)
+function blocSummaryFromGame(gameId: string) {
+  const game = getGame(gameId);
+  if (!game) return "";
+  const blocCounts = new Map<string, number>();
+  for (const country of game.countries) {
+    blocCounts.set(country.bloc, (blocCounts.get(country.bloc) ?? 0) + 1);
+  }
+
+  return [...blocCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([bloc, count]) => `${bloc}(${count})`)
     .join(", ");
-}
-
-function latestEventText(world: World): string | undefined {
-  const event = world.events[0];
-  if (!event) return undefined;
-  return `${event.title}: ${event.description}`;
-}
-
-function isAllowedAction(value: unknown): value is PlayerActionType {
-  return typeof value === "string" && ["stabilize", "invest", "influence", "disrupt", "incite"].includes(value);
-}
-
-function isJumpStep(value: unknown): value is JumpStep {
-  return typeof value === "string" && ["week", "month", "quarter", "year"].includes(value);
-}
-
-function normalizeText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function averageByCountry(world: World, country: string): { avgStability: number; avgTension: number } | null {
-  const target = normalizeText(country);
-  const matches = world.cells.filter((cell) => normalizeText(cell.country) === target);
-  if (matches.length === 0) return null;
-
-  const avgStability = Math.round(matches.reduce((sum, cell) => sum + cell.stability, 0) / matches.length);
-  const avgTension = Math.round(matches.reduce((sum, cell) => sum + cell.tension, 0) / matches.length);
-  return { avgStability, avgTension };
-}
-
-function buildDiplomacyReply(world: World, targetCountry: string, message: string): {
-  stance: "friendly" | "neutral" | "hostile";
-  reply: string;
-} {
-  const normalized = normalizeText(message);
-  const countryStats = averageByCountry(world, targetCountry);
-
-  const aggression = /\b(guerre|attaque|ultimatum|sanction|annex|menace)\b/.test(normalized);
-  const cooperation = /\b(alliance|accord|paix|commerce|cooperation|pacte)\b/.test(normalized);
-  const avgTension = countryStats?.avgTension ?? 50;
-
-  if (aggression || avgTension >= 68) {
-    return {
-      stance: "hostile",
-      reply: `${targetCountry} rejette votre ligne et renforce sa posture defensive. Reponse probable: contre-pression diplomatique et mobilisation limitee.`
-    };
-  }
-
-  if (cooperation || avgTension <= 38) {
-    return {
-      stance: "friendly",
-      reply: `${targetCountry} accepte d'ouvrir un canal de negociation. Reponse probable: accord graduel sur commerce, securite et stabilisation regionale.`
-    };
-  }
-
-  return {
-    stance: "neutral",
-    reply: `${targetCountry} reste prudent. Reponse probable: discussion technique sans engagement immediat, demande de garanties concretes.`
-  };
-}
-
-function actionTargetGuard(world: World, cellId: string): { ok: true } | { ok: false; status: number; body: object } {
-  const target = world.cells.find((cell) => cell.id === cellId);
-  if (!target) {
-    return { ok: false, status: 404, body: { error: "Cell not found" } };
-  }
-
-  if (world.countryLocked && world.role === "nation" && world.playerFactionId && target.owner !== world.playerFactionId) {
-    return {
-      ok: false,
-      status: 403,
-      body: {
-        error: `Territory not controlled by your nation (${world.playerCountry ?? "locked country"}).`,
-        playerFactionId: world.playerFactionId,
-        playerCountry: world.playerCountry
-      }
-    };
-  }
-
-  return { ok: true };
 }
 
 export function registerRoutes(app: import("express").Express, ai: AIProvider): void {
@@ -116,361 +34,196 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     res.json({ ok: true, service: "genesis-engine-server", aiProvider: ai.providerName });
   });
 
-  app.get("/world/:worldId", (req: Request, res: Response) => {
-    const worldId = String(req.params.worldId ?? "").trim();
-    const world = getWorld(worldId);
-
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    res.json(world);
+  app.get("/scenarios", (_req: Request, res: Response) => {
+    res.json(listScenarios());
   });
 
-  app.post("/world/create", (req: Request, res: Response) => {
-    const payload = (req.body ?? {}) as { startCountry?: unknown };
-    if (payload.startCountry !== undefined && typeof payload.startCountry !== "string") {
-      res.status(400).json({ error: "startCountry must be a string when provided" });
-      return;
-    }
-
-    const world = createWorld(req.body ?? {});
-    res.status(201).json(world);
+  app.get("/countries", (req: Request, res: Response) => {
+    const scenarioId = ensureString(req.query.scenarioId);
+    res.json(listCountries(scenarioId === "earth-2010" ? "earth-2010" : undefined));
   });
 
-  app.post("/world/demo", (_req: Request, res: Response) => {
-    const world = createDemoWorld();
-    res.status(201).json(world);
+  app.post("/game/start", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as Partial<CreateGameInput>;
+    const scenarioId = ensureString(payload.scenarioId) === "earth-2010" ? "earth-2010" : "earth-2010";
+    const countryId = ensureString(payload.countryId);
+
+    if (!countryId) {
+      res.status(400).json({ error: "countryId is required" });
+      return;
+    }
+
+    const game = createGame({ scenarioId, countryId });
+    res.status(201).json(game);
   });
 
-  app.post("/world/tick", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    if (!worldId) {
-      res.status(400).json({ error: "worldId is required" });
+  app.get("/game/:gameId", (req: Request, res: Response) => {
+    const gameId = ensureString(req.params.gameId);
+    const game = getGame(gameId);
+
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
       return;
     }
 
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
+    res.json(game);
+  });
+
+  app.post("/game/order", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as Partial<QueueOrderInput>;
+    const gameId = ensureString(payload.gameId);
+    const text = ensureString(payload.text);
+
+    if (!gameId || !text) {
+      res.status(400).json({ error: "gameId and text are required" });
       return;
     }
 
-    const updated = tickWorld(world);
-    saveWorld(updated);
+    const game = getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return;
+    }
+
+    try {
+      const updated = queueOrder(game, text);
+      res.json(updated);
+    } catch (error) {
+      res.status(409).json({ error: error instanceof Error ? error.message : "Unable to queue order" });
+    }
+  });
+
+  app.post("/game/order/remove", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as Partial<RemoveOrderInput>;
+    const gameId = ensureString(payload.gameId);
+    const orderId = ensureString(payload.orderId);
+
+    if (!gameId || !orderId) {
+      res.status(400).json({ error: "gameId and orderId are required" });
+      return;
+    }
+
+    const game = getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return;
+    }
+
+    try {
+      const updated = removeOrder(game, orderId);
+      res.json(updated);
+    } catch (error) {
+      res.status(404).json({ error: error instanceof Error ? error.message : "Unable to remove order" });
+    }
+  });
+
+  app.post("/game/jump", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as Partial<JumpInput>;
+    const gameId = ensureString(payload.gameId);
+    const step = ensureString(payload.step);
+
+    if (!gameId || !step) {
+      res.status(400).json({ error: "gameId and step are required" });
+      return;
+    }
+
+    if (!["week", "month", "quarter", "year"].includes(step)) {
+      res.status(400).json({ error: "step must be week, month, quarter or year" });
+      return;
+    }
+
+    const game = getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return;
+    }
+
+    const updated = jumpForward(game, step as JumpInput["step"]);
+    saveGame(updated);
     res.json(updated);
   });
 
-  app.post("/world/event", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const type = req.body?.type as EventType | undefined;
-
-    if (!worldId) {
-      res.status(400).json({ error: "worldId is required" });
+  app.post("/game/jump/major-event", (req: Request, res: Response) => {
+    const gameId = ensureString(req.body?.gameId);
+    if (!gameId) {
+      res.status(400).json({ error: "gameId is required" });
       return;
     }
 
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
+    const game = getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
       return;
     }
 
-    const updated = triggerWorldEvent(world, type);
-    saveWorld(updated);
+    const updated = jumpToMajorEvent(game);
+    saveGame(updated);
     res.json(updated);
   });
 
-  app.post("/world/action/queue", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const cellId = String(req.body?.cellId ?? "").trim();
-    const action = req.body?.action;
+  app.post("/game/diplomacy", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as Partial<DiplomacyInput>;
+    const gameId = ensureString(payload.gameId);
+    const targetCountryId = ensureString(payload.targetCountryId);
+    const message = ensureString(payload.message);
 
-    if (!worldId || !cellId || !action) {
-      res.status(400).json({ error: "worldId, cellId and action are required" });
+    if (!gameId || !targetCountryId || !message) {
+      res.status(400).json({ error: "gameId, targetCountryId and message are required" });
       return;
     }
 
-    if (!isAllowedAction(action)) {
-      res.status(400).json({ error: "Invalid action" });
+    const game = getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
       return;
     }
 
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
+    try {
+      const exchange = sendDiplomacyMessage(game, targetCountryId, message);
+      res.json(exchange);
+    } catch (error) {
+      res.status(404).json({ error: error instanceof Error ? error.message : "Diplomacy failed" });
     }
-
-    const guard = actionTargetGuard(world, cellId);
-    if (!guard.ok) {
-      res.status(guard.status).json(guard.body);
-      return;
-    }
-
-    if (!canAffordAction(world, action)) {
-      res.status(409).json({
-        error: "Not enough action points",
-        actionPoints: world.actionPoints,
-        maxActionPoints: world.maxActionPoints
-      });
-      return;
-    }
-
-    const updated = queuePlayerAction(world, cellId, action);
-    saveWorld(updated);
-    res.json(updated);
   });
 
-  app.post("/world/action/remove", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const queuedActionId = String(req.body?.queuedActionId ?? "").trim();
-
-    if (!worldId || !queuedActionId) {
-      res.status(400).json({ error: "worldId and queuedActionId are required" });
+  app.post("/game/advisor", async (req: Request, res: Response) => {
+    const gameId = ensureString(req.body?.gameId);
+    if (!gameId) {
+      res.status(400).json({ error: "gameId is required" });
       return;
     }
 
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
+    const game = getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
       return;
     }
-
-    const updated = removeQueuedPlayerAction(world, queuedActionId);
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/command/submit", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const text = String(req.body?.text ?? "").trim();
-
-    if (!worldId || !text) {
-      res.status(400).json({ error: "worldId and text are required" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    if (world.queuedActions.length >= world.maxActionPoints || world.actionPoints <= 0) {
-      res.status(409).json({
-        error: "No available order slots this turn",
-        actionPoints: world.actionPoints,
-        maxActionPoints: world.maxActionPoints
-      });
-      return;
-    }
-
-    const before = world.submittedCommands.length;
-    const updated = submitTurnCommand(world, text);
-    if (updated.submittedCommands.length === before) {
-      res.status(422).json({ error: "Unable to parse or queue this command" });
-      return;
-    }
-
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/command/remove", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const commandId = String(req.body?.commandId ?? "").trim();
-
-    if (!worldId || !commandId) {
-      res.status(400).json({ error: "worldId and commandId are required" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const updated = removeTurnCommand(world, commandId);
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/resolve", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    if (!worldId) {
-      res.status(400).json({ error: "worldId is required" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const updated = resolveWorldTurn(world);
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/jump", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const step = req.body?.step;
-
-    if (!worldId) {
-      res.status(400).json({ error: "worldId is required" });
-      return;
-    }
-
-    if (!isJumpStep(step)) {
-      res.status(400).json({ error: "step must be one of: week, month, quarter, year" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const updated = jumpWorld(world, step);
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/jump/major-event", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    if (!worldId) {
-      res.status(400).json({ error: "worldId is required" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const updated = jumpToNextMajorEvent(world);
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/diplomacy/send", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const targetCountry = String(req.body?.targetCountry ?? "").trim();
-    const message = String(req.body?.message ?? "").trim();
-
-    if (!worldId || !targetCountry || !message) {
-      res.status(400).json({ error: "worldId, targetCountry and message are required" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const { stance, reply } = buildDiplomacyReply(world, targetCountry, message);
-
-    world.events.unshift({
-      id: `${world.id}-evt-diplo-${world.tick}-${world.events.length + 1}`,
-      tick: world.tick,
-      type: stance === "hostile" ? "troubles" : "alliance",
-      title: `Diplomatic Exchange: ${targetCountry}`,
-      description: `${message.slice(0, 140)} | Reply: ${reply}`
-    });
-    if (world.events.length > 80) {
-      world.events = world.events.slice(0, 80);
-    }
-
-    saveWorld(world);
-    res.json({ targetCountry, stance, reply, tick: world.tick, year: world.year });
-  });
-
-  app.post("/world/action", (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    const cellId = String(req.body?.cellId ?? "").trim();
-    const action = req.body?.action;
-
-    if (!worldId || !cellId || !action) {
-      res.status(400).json({ error: "worldId, cellId and action are required" });
-      return;
-    }
-
-    if (!isAllowedAction(action)) {
-      res.status(400).json({ error: "Invalid action" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const guard = actionTargetGuard(world, cellId);
-    if (!guard.ok) {
-      res.status(guard.status).json(guard.body);
-      return;
-    }
-
-    if (!canAffordAction(world, action)) {
-      res.status(409).json({
-        error: "Not enough action points",
-        actionPoints: world.actionPoints,
-        maxActionPoints: world.maxActionPoints
-      });
-      return;
-    }
-
-    const updated = applyPlayerAction(world, cellId, action);
-    saveWorld(updated);
-    res.json(updated);
-  });
-
-  app.post("/world/briefing", async (req: Request, res: Response) => {
-    const worldId = String(req.body?.worldId ?? "").trim();
-    if (!worldId) {
-      res.status(400).json({ error: "worldId is required" });
-      return;
-    }
-
-    const world = getWorld(worldId);
-    if (!world) {
-      res.status(404).json({ error: "World not found" });
-      return;
-    }
-
-    const avgRichness = average(world.cells.map((cell) => cell.richness));
-    const avgStability = average(world.cells.map((cell) => cell.stability));
-    const avgTension = average(world.cells.map((cell) => cell.tension));
 
     const narrative = await ai.generateWorldNarrative({
-      worldName: world.name,
-      scenarioId: world.scenarioId,
-      year: world.year,
-      tick: world.tick,
-      role: world.role,
-      kind: world.kind,
-      complexity: world.complexity,
-      actionPoints: world.actionPoints,
-      maxActionPoints: world.maxActionPoints,
-      avgRichness,
-      avgStability,
-      avgTension,
-      factionsText: factionSummary(world),
-      latestEventText: latestEventText(world)
+      worldName: game.scenarioName,
+      scenarioId: game.scenarioId,
+      year: game.year,
+      tick: game.tick,
+      role: "nation",
+      kind: "historical",
+      complexity: "medium",
+      actionPoints: game.actionPoints,
+      maxActionPoints: game.maxActionPoints,
+      avgRichness: game.indicators.avgWealth,
+      avgStability: game.indicators.avgStability,
+      avgTension: game.indicators.avgTension,
+      factionsText: blocSummaryFromGame(gameId),
+      latestEventText: game.events[0]?.title
     });
 
-    res.json({
+    const response: AdvisorResponse = {
       provider: ai.providerName,
-      narrative,
-      tick: world.tick
-    });
+      narrative: `${monthLabel(game.month)} ${game.year} | ${narrative}`,
+      tick: game.tick,
+      year: game.year,
+      month: game.month
+    };
+
+    res.json(response);
   });
 }

@@ -1,129 +1,70 @@
 ﻿# Genesis Engine
 
-Genesis Engine est un moteur de simulation web orienté mondes vivants.
-Le projet vise une base modulaire, stable et extensible, sans dépendance cloud obligatoire.
+Genesis Engine is a web strategy sandbox focused on one core loop:
 
-## État Actuel (MVP+)
+1. Pick a scenario and a country.
+2. Write text orders and diplomacy messages.
+3. Jump time forward.
+4. Read consequences on map and events.
+5. Adapt strategy and repeat.
 
-- Landing + formulaire de création de monde.
-- Monde démo chargeable en un clic.
-- Carte 2D en grille (une case = territoire).
-- Carte monde 2D interactive (pays stylisés, sélection de territoires).
-- Continents générés et visibles sur la carte de territoires.
-- Sélection de territoire + panneau local détaillé.
-- Factions générées selon type/complexité et ownership initial.
-- Scénario historique de base: `earth-2010` (départ en 2010).
-- Boucle de tour type stratégie: soumettre jusqu'à 3 ordres, puis résoudre le tour.
-- Tick déterministe avec influence des voisins + exécution des ordres planifiés.
-- Commandes textuelles de tour (ex: `Investir en France`) converties en actions simulées.
-- Rapport de résolution du tour avec highlights causes -> conséquences.
-- Bascule de contrôle territorial (owner) en situation de crise.
-- Feed d'événements (auto + manuel).
-- Actions locales joueur sur territoire (`stabilize`, `invest`, `influence`, `disrupt`) via file d'ordres.
-- Narration IA locale via backend (`/world/briefing`).
-- Fallback automatique mock si IA désactivée ou indisponible.
+## Current Restart Scope
+
+This version is a full restart of the previous codebase.
+
+Included now:
+- Scenario start flow (`Earth 2010`)
+- Full country list with search (175 countries)
+- Interactive world map (bloc / tension / stability lenses)
+- Text order system with queue and removal
+- Time jump system (`week`, `month`, `quarter`, `year`)
+- `Next Major Event` jump
+- Diplomacy messaging with simulated stance/reply
+- Event feed and round summary
+- Advisor endpoint (mock by default, backend-only)
 
 ## Stack
 
-- Frontend: React + Vite + TypeScript
-- Backend: Node.js + Express + TypeScript
-- Contrats partagés: package `@genesis/shared`
-- Données: mémoire serveur (pas de DB pour le MVP)
-- IA locale: Ollama (optionnel)
+- Client: React + Vite + TypeScript
+- Server: Node.js + Express + TypeScript
+- Shared contracts package: TypeScript
+- Data: in-memory game state
 
-## Structure
+## Monorepo Structure
 
-```text
-genesis-engine/
-  client/
-    src/
-      App.tsx
-      api.ts
-      main.tsx
-      styles.css
-  server/
-    src/
-      app.ts
-      config.ts
-      index.ts
-      routes.ts
-      simulation.ts
-      world.ts
-      ai/
-        index.ts
-        types.ts
-        providers/
-          mockProvider.ts
-          ollamaProvider.ts
-  shared/
-    src/
-      contracts.ts
-      index.ts
-```
+- `client/` React application
+- `server/` API and simulation engine
+- `shared/` shared contracts used by client/server
 
-## API MVP
-
-- `GET /health`
-- `POST /world/create`
-- `POST /world/demo`
-- `POST /world/tick`
-- `POST /world/event`
-- `POST /world/action` (legacy direct)
-- `POST /world/action/queue`
-- `POST /world/action/remove`
-- `POST /world/command/submit`
-- `POST /world/command/remove`
-- `POST /world/resolve`
-- `POST /world/briefing`
-- `GET /world/:worldId`
-
-## Variables d'environnement
-
-Copier `.env.example` vers `.env`.
-
-- `SERVER_PORT=4000`
-- `VITE_API_BASE_URL=http://localhost:4000`
-- `AI_ENABLED=false`
-- `AI_PROVIDER=mock` ou `ollama`
-- `OLLAMA_BASE_URL=http://localhost:11434`
-- `OLLAMA_CHAT_MODEL=qwen3:8b`
-- `OLLAMA_TIMEOUT_MS=12000`
-
-## Activer l'IA locale Ollama
-
-1. Lancer Ollama localement.
-2. Vérifier les modèles installés: `curl http://localhost:11434/api/tags`
-3. Mettre `.env`:
-
-```env
-AI_ENABLED=true
-AI_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_CHAT_MODEL=qwen3:8b
-```
-
-Notes:
-
-- Si le modèle configuré n'est pas disponible, le provider tente un modèle local disponible.
-- Si Ollama est indisponible, le jeu reste jouable avec narration mock.
-
-## Lancer le projet
+## Run Local
 
 ```bash
+cd C:\Users\Zizi\Documents\genesis-engine
 npm install
 npm run dev
 ```
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:4000`
+- Client: `http://localhost:5173`
+- Server: `http://localhost:4000`
 
-## Inspiration produit
+## API Surface (MVP)
 
-Inspiration de haut niveau: expérience sandbox historique/fictive, carte centrale et progression temporelle.
-Genesis Engine reste distinct par sa modularité de rôles (`hero`, `faction`, `nation`, `gm`) et son architecture moteur-first.
+- `GET /health`
+- `GET /scenarios`
+- `GET /countries?scenarioId=earth-2010`
+- `POST /game/start`
+- `GET /game/:gameId`
+- `POST /game/order`
+- `POST /game/order/remove`
+- `POST /game/jump`
+- `POST /game/jump/major-event`
+- `POST /game/diplomacy`
+- `POST /game/advisor`
 
-## Suite recommandée
+## Next Priorities
 
-1. Ajouter des actions de rôle (`hero`, `faction`, `nation`, `gm`) qui influencent la simulation.
-2. Ajouter des objectifs narratifs (quêtes courts terme) pour renforcer le fun.
-3. Ajouter mémoire légère des faits marquants pour continuité IA.
+1. Country-level attack/defend quick actions on map click
+2. Preset browser UI (cards + categories + metadata)
+3. Continent and regional pressure overlays
+4. Better diplomacy memory and bilateral relation history
+5. Optional Ollama narrative mode for richer advisor output

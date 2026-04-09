@@ -1,111 +1,139 @@
-export type RoleType = "hero" | "faction" | "nation" | "gm";
-export type WorldKind = "historical" | "fictional";
-export type PoliticalComplexity = "low" | "medium" | "high";
-export type MapSize = "small" | "medium" | "large";
-export type EventType = "troubles" | "alliance" | "expansion" | "crisis_local" | "discovery";
-export type PlayerActionType = "stabilize" | "invest" | "influence" | "disrupt" | "incite";
+﻿export type ScenarioId = "earth-2010";
 
-export const HISTORICAL_START_COUNTRIES = [
-  "France",
-  "United Kingdom",
-  "Germany",
-  "Russia",
-  "United States",
-  "Japan",
-  "Turkey",
-  "China",
-  "Brazil",
-  "Egypt"
-] as const;
+export type JumpStep = "week" | "month" | "quarter" | "year";
 
-export type HistoricalStartCountry = string;
+export type GameEventType =
+  | "system"
+  | "order"
+  | "diplomacy"
+  | "major_diplomacy"
+  | "major_crisis"
+  | "major_conflict"
+  | "major_growth";
 
-export type WorldCell = {
-  id: string;
-  x: number;
-  y: number;
-  owner: string;
-  continent: string;
-  country: string;
-  richness: number;
-  stability: number;
-  tension: number;
-};
+export type TurnOrderKind = "stabilize" | "invest" | "pressure" | "military" | "diplomacy";
 
-export type Faction = {
+export type CountryDescriptor = {
   id: string;
   name: string;
-  power: number;
-  resources: number;
+  continent: string;
 };
 
-export type WorldEvent = {
-  id: string;
-  tick: number;
-  type: EventType;
-  title: string;
+export type ScenarioDescriptor = {
+  id: ScenarioId;
+  name: string;
   description: string;
-  targetCellId?: string;
-  factionId?: string;
+  startYear: number;
+  startMonth: number;
 };
 
-export type QueuedPlayerAction = {
+export type CountryState = {
   id: string;
-  action: PlayerActionType;
-  cellId: string;
-  tickQueued: number;
+  name: string;
+  continent: string;
+  bloc: string;
+  wealth: number;
+  stability: number;
+  tension: number;
+  relationToPlayer: number;
 };
 
-export type SubmittedTurnCommand = {
+export type GameEvent = {
   id: string;
-  text: string;
-  parsedAction: PlayerActionType;
-  parsedCellId: string;
-  rationale: string;
-  status: "queued" | "applied" | "cancelled";
-  tickQueued: number;
-  linkedQueuedActionId: string;
-};
-
-export type TurnResolutionReport = {
+  type: GameEventType;
   tick: number;
   year: number;
-  executedCount: number;
+  month: number;
+  title: string;
+  description: string;
+  countryId?: string;
+};
+
+export type TurnOrder = {
+  id: string;
+  text: string;
+  kind: TurnOrderKind;
+  targetCountryId: string;
+  status: "queued" | "resolved" | "cancelled";
+  tickSubmitted: number;
+};
+
+export type DiplomacyExchange = {
+  id: string;
+  tick: number;
+  year: number;
+  month: number;
+  targetCountryId: string;
+  targetCountryName: string;
+  message: string;
+  stance: "friendly" | "neutral" | "hostile";
+  reply: string;
+};
+
+export type RoundSummary = {
+  tick: number;
+  year: number;
+  month: number;
+  appliedOrders: number;
   highlights: string[];
 };
 
-export type World = {
-  id: string;
-  name: string;
-  scenarioId: string;
-  year: number;
-  tick: number;
-  actionPoints: number;
-  maxActionPoints: number;
-  width: number;
-  height: number;
-  role: RoleType;
-  kind: WorldKind;
-  complexity: PoliticalComplexity;
-  playerCountry?: string;
-  playerFactionId?: string;
-  startCellId?: string;
-  countryLocked: boolean;
-  queuedActions: QueuedPlayerAction[];
-  submittedCommands: SubmittedTurnCommand[];
-  lastResolutionReport?: TurnResolutionReport;
-  cells: WorldCell[];
-  factions: Faction[];
-  events: WorldEvent[];
+export type WorldIndicators = {
+  avgStability: number;
+  avgWealth: number;
+  avgTension: number;
+  conflictLevel: "Low" | "Medium" | "High";
 };
 
-export type CreateWorldInput = {
-  name?: string;
-  kind?: WorldKind;
-  complexity?: PoliticalComplexity;
-  width?: number;
-  height?: number;
-  mapSize?: MapSize;
-  role?: RoleType;
-  startCountry?: HistoricalStartCountry;
+export type GameState = {
+  id: string;
+  scenarioId: ScenarioId;
+  scenarioName: string;
+  year: number;
+  month: number;
+  tick: number;
+  playerCountryId: string;
+  playerCountryName: string;
+  actionPoints: number;
+  maxActionPoints: number;
+  countries: CountryState[];
+  events: GameEvent[];
+  queuedOrders: TurnOrder[];
+  diplomacyLog: DiplomacyExchange[];
+  lastRoundSummary?: RoundSummary;
+  indicators: WorldIndicators;
+};
+
+export type CreateGameInput = {
+  scenarioId: ScenarioId;
+  countryId: string;
+};
+
+export type QueueOrderInput = {
+  gameId: string;
+  text: string;
+};
+
+export type RemoveOrderInput = {
+  gameId: string;
+  orderId: string;
+};
+
+export type JumpInput = {
+  gameId: string;
+  step: JumpStep;
+};
+
+export type DiplomacyInput = {
+  gameId: string;
+  targetCountryId: string;
+  message: string;
+};
+
+export type AdvisorResponse = {
+  provider: string;
+  narrative: string;
+  tick: number;
+  year: number;
+  month: number;
 };

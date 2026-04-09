@@ -1,801 +1,476 @@
-import type {
-  EventType,
-  Faction,
-  PlayerActionType,
-  QueuedPlayerAction,
-  SubmittedTurnCommand,
-  TurnResolutionReport,
-  World,
-  WorldCell,
-  WorldEvent
+﻿import type {
+  DiplomacyExchange,
+  GameEvent,
+  GameState,
+  JumpStep,
+  TurnOrder,
+  TurnOrderKind
 } from "@genesis/shared";
-import { getHistoricalSignalsForYear } from "./data/historicalSignals.js";
+import {
+  advanceCalendar,
+  computeIndicators,
+  normalizeCountryId,
+  pushEvent,
+  safeCountryName,
+  saveGame
+} from "./world.js";
 
-export type JumpStep = "week" | "month" | "quarter" | "year";
-
-function clamp(value: number, min = 0, max = 100): number {
+function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function deterministicDelta(world: World, cellId: string): number {
-  const seed = `${world.id}:${world.tick}:${cellId}`;
-  let hash = 0;
+function hash(seed: string): number {
+  let result = 0;
   for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) % 9973;
+    result = (result * 31 + seed.charCodeAt(i)) % 2147483647;
   }
-  return (hash % 5) - 2;
-}
-
-function deterministicIndex(world: World, salt: string, size: number): number {
-  if (size <= 1) return 0;
-
-  const seed = `${world.id}:${world.tick}:${world.year}:${salt}`;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 29 + seed.charCodeAt(i)) % 104729;
-  }
-
-  return hash % size;
-}
-
-function getNeighbors(snapshot: Map<string, WorldCell>, x: number, y: number): WorldCell[] {
-  const coords = [
-    `${x - 1}-${y}`,
-    `${x + 1}-${y}`,
-    `${x}-${y - 1}`,
-    `${x}-${y + 1}`
-  ];
-
-  return coords
-    .map((key) => snapshot.get(key))
-    .filter((cell): cell is WorldCell => Boolean(cell));
-}
-
-function getWorldNeighbors(world: World, x: number, y: number): WorldCell[] {
-  const ids = [`${x - 1}-${y}`, `${x + 1}-${y}`, `${x}-${y - 1}`, `${x}-${y + 1}`];
-  return ids
-    .map((id) => world.cells.find((cell) => cell.id === id))
-    .filter((cell): cell is WorldCell => Boolean(cell));
-}
-
-function trendToward(value: number, target: number): number {
-  if (value < target) return 1;
-  if (value > target) return -1;
-  return 0;
-}
-
-function average(values: number[]): number {
-  if (values.length === 0) return 0;
-  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
-}
-
-function toEventTypeByIndex(index: number): EventType {
-  const options: EventType[] = ["troubles", "alliance", "expansion", "crisis_local", "discovery"];
-  return options[index % options.length];
-}
-
-function pushEvent(world: World, event: WorldEvent): void {
-  world.events.unshift(event);
-  if (world.events.length > 80) {
-    world.events = world.events.slice(0, 80);
-  }
-}
-
-const operationalEventTitles = new Set<string>([
-  "Turn Resolved",
-  "Order Queued",
-  "Order Removed",
-  "National Command Submitted",
-  "Nation Selected"
-]);
-
-function isMajorEvent(event: WorldEvent): boolean {
-  return (
-    ["troubles", "alliance", "expansion", "crisis_local"].includes(event.type) &&
-    !operationalEventTitles.has(event.title)
-  );
-}
-
-function ticksForJumpStep(step: JumpStep): number {
-  if (step === "week") return 1;
-  if (step === "month") return 2;
-  if (step === "quarter") return 4;
-  return 12;
-}
-
-function territoryLabel(cell: WorldCell): string {
-  return `${cell.country} (${cell.x}, ${cell.y})`;
-}
-
-function factionName(world: World, factionId?: string): string {
-  if (!factionId) return "Unknown faction";
-  return world.factions.find((f) => f.id === factionId)?.name ?? factionId;
-}
-
-function strongestFaction(world: World): Faction | undefined {
-  return [...world.factions].sort((a, b) => b.power - a.power)[0];
-}
-
-function updateFactionStats(world: World): void {
-  for (const faction of world.factions) {
-    const owned = world.cells.filter((cell) => cell.owner === faction.id);
-    const territoryWeight = owned.length;
-    const avgRichness = average(owned.map((cell) => cell.richness));
-    const avgStability = average(owned.map((cell) => cell.stability));
-
-    faction.resources = clamp(Math.round(avgRichness * 0.7 + territoryWeight * 1.6));
-    faction.power = clamp(Math.round(avgStability * 0.5 + territoryWeight * 1.9));
-  }
-}
-
-function pickTargetCell(world: World, strategy: "highest_tension" | "lowest_richness" | "highest_richness"): WorldCell {
-  const cells = [...world.cells];
-
-  if (strategy === "highest_tension") {
-    cells.sort((a, b) => b.tension - a.tension || a.id.localeCompare(b.id));
-  } else if (strategy === "lowest_richness") {
-    cells.sort((a, b) => a.richness - b.richness || a.id.localeCompare(b.id));
-  } else {
-    cells.sort((a, b) => b.richness - a.richness || a.id.localeCompare(b.id));
-  }
-
-  return cells[0];
-}
-
-function createEvent(
-  world: World,
-  type: EventType,
-  details: {
-    title: string;
-    description: string;
-    targetCellId?: string;
-    factionId?: string;
-  }
-): WorldEvent {
-  return {
-    id: `${world.id}-evt-${world.tick}-${world.events.length + 1}`,
-    tick: world.tick,
-    type,
-    title: details.title,
-    description: details.description,
-    targetCellId: details.targetCellId,
-    factionId: details.factionId
-  };
-}
-
-function actionCost(_action: PlayerActionType): number {
-  return 1;
-}
-
-export function canAffordAction(world: World, action: PlayerActionType): boolean {
-  return world.actionPoints >= actionCost(action);
-}
-
-function normalizeAction(action: PlayerActionType): PlayerActionType {
-  return action === "incite" ? "disrupt" : action;
-}
-
-function normalizeText(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-}
-
-function actionFromCommandText(text: string): PlayerActionType {
-  const normalized = normalizeText(text);
-
-  if (/\b(stabil|paix|secur|ordre|calme)\b/.test(normalized)) return "stabilize";
-  if (/\b(invest|eco|industrie|infrastructure|commerce|budget)\b/.test(normalized)) return "invest";
-  if (/\b(influ|diplo|alliance|pression)\b/.test(normalized)) return "influence";
-  if (/\b(perturb|sabot|sanction|attaque|destabil)\b/.test(normalized)) return "disrupt";
-
-  return "invest";
-}
-
-function controlledCells(world: World): WorldCell[] {
-  if (!world.countryLocked || world.role !== "nation" || !world.playerFactionId) {
-    return world.cells;
-  }
-  return world.cells.filter((cell) => cell.owner === world.playerFactionId);
-}
-
-function parseCountryFromCommand(world: World, text: string): string | null {
-  const normalized = normalizeText(text);
-  const countries = new Set(world.cells.map((cell) => cell.country));
-  for (const country of countries) {
-    if (normalized.includes(normalizeText(country))) {
-      return country;
-    }
-  }
-  return null;
-}
-
-function chooseTargetCellFromAction(world: World, action: PlayerActionType, text: string): WorldCell {
-  const allowed = controlledCells(world);
-  const fromCountry = parseCountryFromCommand(world, text);
-
-  if (fromCountry) {
-    const exact = allowed.find((cell) => cell.country === fromCountry);
-    if (exact) return exact;
-  }
-
-  const candidates = allowed.length > 0 ? allowed : world.cells;
-  if (action === "stabilize") {
-    return [...candidates].sort((a, b) => b.tension - a.tension || a.stability - b.stability)[0];
-  }
-  if (action === "invest") {
-    return [...candidates].sort((a, b) => a.richness - b.richness || b.stability - a.stability)[0];
-  }
-  if (action === "influence") {
-    return [...candidates].sort((a, b) => b.tension - a.tension || a.stability - b.stability)[0];
-  }
-  return [...candidates].sort((a, b) => b.tension - a.tension || a.stability - b.stability)[0];
-}
-
-function commandId(world: World): string {
-  return `${world.id}-cmd-${world.tick}-${world.submittedCommands.length + 1}`;
-}
-
-function queueActionId(world: World, cellId: string, action: PlayerActionType): string {
-  return `${world.id}-qa-${world.tick}-${cellId}-${action}-${world.queuedActions.length + 1}`;
-}
-
-function hasTargetPermission(world: World, target: WorldCell): boolean {
-  if (!world.countryLocked || world.role !== "nation" || !world.playerFactionId) {
-    return true;
-  }
-  return target.owner === world.playerFactionId;
-}
-
-export function queuePlayerAction(world: World, cellId: string, action: PlayerActionType): World {
-  const target = world.cells.find((cell) => cell.id === cellId);
-  if (!target) {
-    return world;
-  }
-
-  if (!hasTargetPermission(world, target)) {
-    return world;
-  }
-
-  const normalizedAction = normalizeAction(action);
-  const cost = actionCost(normalizedAction);
-  if (world.queuedActions.length >= world.maxActionPoints || world.actionPoints < cost) {
-    return world;
-  }
-
-  const queued: QueuedPlayerAction = {
-    id: queueActionId(world, cellId, normalizedAction),
-    action: normalizedAction,
-    cellId,
-    tickQueued: world.tick
-  };
-
-  world.queuedActions.push(queued);
-  world.actionPoints = clamp(world.actionPoints - cost, 0, world.maxActionPoints);
-
-  pushEvent(world, createEvent(world, "alliance", {
-    title: "Order Queued",
-    description: `${normalizedAction.toUpperCase()} queued for ${territoryLabel(target)}.`,
-    targetCellId: target.id,
-    factionId: target.owner
-  }));
-
-  return world;
-}
-
-export function removeQueuedPlayerAction(world: World, queuedActionId: string): World {
-  const index = world.queuedActions.findIndex((action) => action.id === queuedActionId);
-  if (index < 0) {
-    return world;
-  }
-
-  const [removed] = world.queuedActions.splice(index, 1);
-  const refund = actionCost(removed.action);
-  world.actionPoints = clamp(world.actionPoints + refund, 0, world.maxActionPoints);
-
-  const target = world.cells.find((cell) => cell.id === removed.cellId);
-  pushEvent(world, createEvent(world, "discovery", {
-    title: "Order Removed",
-    description: `${removed.action.toUpperCase()} removed from plan${target ? ` for ${territoryLabel(target)}` : ""}.`,
-    targetCellId: removed.cellId,
-    factionId: target?.owner
-  }));
-
-  return world;
-}
-
-export function submitTurnCommand(world: World, rawText: string): World {
-  const text = rawText.trim();
-  if (!text) return world;
-  if (world.queuedActions.length >= world.maxActionPoints || world.actionPoints <= 0) return world;
-
-  const action = actionFromCommandText(text);
-  const target = chooseTargetCellFromAction(world, action, text);
-
-  const beforeQueueCount = world.queuedActions.length;
-  queuePlayerAction(world, target.id, action);
-  if (world.queuedActions.length <= beforeQueueCount) {
-    return world;
-  }
-
-  const linkedQueuedActionId = world.queuedActions[world.queuedActions.length - 1]?.id;
-  if (!linkedQueuedActionId) {
-    return world;
-  }
-
-  const command: SubmittedTurnCommand = {
-    id: commandId(world),
-    text,
-    parsedAction: action,
-    parsedCellId: target.id,
-    rationale: `Interprete comme ${action.toUpperCase()} sur ${territoryLabel(target)}.`,
-    status: "queued",
-    tickQueued: world.tick,
-    linkedQueuedActionId
-  };
-
-  world.submittedCommands.push(command);
-  if (world.submittedCommands.length > 40) {
-    world.submittedCommands = world.submittedCommands.slice(-40);
-  }
-
-  pushEvent(world, createEvent(world, "alliance", {
-    title: "National Command Submitted",
-    description: `"${text}" -> ${action.toUpperCase()} on ${territoryLabel(target)}.`,
-    targetCellId: target.id,
-    factionId: target.owner
-  }));
-
-  return world;
-}
-
-export function removeTurnCommand(world: World, commandIdToRemove: string): World {
-  const command = world.submittedCommands.find((item) => item.id === commandIdToRemove);
-  if (!command || command.status !== "queued") {
-    return world;
-  }
-
-  command.status = "cancelled";
-  removeQueuedPlayerAction(world, command.linkedQueuedActionId);
-  return world;
-}
-
-function pickHistoricalTargets(world: World, cells: WorldCell[], count: number, salt: string): WorldCell[] {
-  if (cells.length <= count) return [...cells];
-
-  const selected: WorldCell[] = [];
-  const used = new Set<string>();
-  let offset = 0;
-
-  while (selected.length < count && used.size < cells.length) {
-    const index = deterministicIndex(world, `${salt}-${offset}`, cells.length);
-    const candidate = cells[index];
-    if (candidate && !used.has(candidate.id)) {
-      used.add(candidate.id);
-      selected.push(candidate);
-    }
-    offset += 1;
-  }
-
-  return selected;
-}
-
-function applyHistoricalMilestone(world: World): boolean {
-  if (world.kind !== "historical") return false;
-
-  const signals = getHistoricalSignalsForYear(world.year);
-  if (signals.length === 0) return false;
-
-  for (const signal of signals) {
-    const pool = world.cells.filter((cell) => signal.continents.includes(cell.continent));
-    if (pool.length === 0) continue;
-
-    const count = Math.max(1, Math.floor(pool.length * signal.coverage));
-    const impacted = pickHistoricalTargets(world, pool, count, signal.title);
-
-    for (const cell of impacted) {
-      cell.tension = clamp(cell.tension + signal.tensionDelta);
-      cell.stability = clamp(cell.stability + signal.stabilityDelta);
-      cell.richness = clamp(cell.richness + signal.richnessDelta);
-    }
-
-    if (signal.type === "expansion") {
-      const leader = strongestFaction(world);
-      if (leader && impacted.length > 0) {
-        const weakest = [...impacted].sort((a, b) => a.stability - b.stability)[0];
-        weakest.owner = leader.id;
-      }
-    }
-
-    const sample = impacted[0];
-    pushEvent(world, createEvent(world, signal.type, {
-      title: signal.title,
-      description: signal.description,
-      targetCellId: sample?.id,
-      factionId: sample?.owner
-    }));
-  }
-
-  return true;
-}
-
-export function triggerWorldEvent(world: World, requestedType?: EventType): World {
-  const type = requestedType ?? toEventTypeByIndex(deterministicIndex(world, "manual-event", 5));
-
-  if (type === "troubles") {
-    const target = pickTargetCell(world, "highest_tension");
-    target.tension = clamp(target.tension + 12);
-    target.stability = clamp(target.stability - 8);
-
-    pushEvent(world, createEvent(world, type, {
-      title: "Civil Unrest",
-      description: `Unrest erupts in ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-  } else if (type === "alliance") {
-    for (const cell of world.cells.slice(0, Math.min(8, world.cells.length))) {
-      cell.tension = clamp(cell.tension - 5);
-      cell.stability = clamp(cell.stability + 4);
-    }
-
-    const leader = strongestFaction(world);
-    pushEvent(world, createEvent(world, type, {
-      title: "Regional Pact",
-      description: `${factionName(world, leader?.id)} secures a diplomatic pact.`,
-      factionId: leader?.id
-    }));
-  } else if (type === "expansion") {
-    const leader = strongestFaction(world);
-    const borderCells = world.cells.filter(
-      (cell) => cell.x === 0 || cell.y === 0 || cell.x === world.width - 1 || cell.y === world.height - 1
-    );
-    const target = borderCells[deterministicIndex(world, "expansion-target", borderCells.length)] ?? world.cells[0];
-
-    if (leader) {
-      target.owner = leader.id;
-      target.stability = clamp(target.stability - 3);
-      target.tension = clamp(target.tension + 7);
-    }
-
-    pushEvent(world, createEvent(world, type, {
-      title: "Territorial Push",
-      description: `${factionName(world, leader?.id)} expands toward ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: leader?.id
-    }));
-  } else if (type === "crisis_local") {
-    const target = pickTargetCell(world, "highest_richness");
-    target.richness = clamp(target.richness - 11);
-    target.stability = clamp(target.stability - 9);
-    target.tension = clamp(target.tension + 6);
-
-    pushEvent(world, createEvent(world, type, {
-      title: "Local Crisis",
-      description: `A sudden crisis impacts ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-  } else {
-    const target = pickTargetCell(world, "lowest_richness");
-    target.richness = clamp(target.richness + 12);
-    target.stability = clamp(target.stability + 3);
-
-    pushEvent(world, createEvent(world, type, {
-      title: "Strategic Discovery",
-      description: `A breakthrough improves outlook in ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-  }
-
-  updateFactionStats(world);
-  return world;
-}
-
-export function applyPlayerAction(
-  world: World,
-  cellId: string,
-  action: PlayerActionType,
-  options?: { skipCost?: boolean; source?: "direct" | "queued" }
-): World {
-  const target = world.cells.find((cell) => cell.id === cellId);
-  if (!target) {
-    return world;
-  }
-
-  const normalizedAction: PlayerActionType = normalizeAction(action);
-  const cost = actionCost(normalizedAction);
-  if (!options?.skipCost && world.actionPoints < cost) {
-    return world;
-  }
-
-  if (!options?.skipCost) {
-    world.actionPoints = clamp(world.actionPoints - cost, 0, world.maxActionPoints);
-  }
-
-  const fromQueue = options?.source === "queued";
-
-  if (normalizedAction === "stabilize") {
-    target.stability = clamp(target.stability + 9);
-    target.tension = clamp(target.tension - 6);
-
-    pushEvent(world, createEvent(world, "alliance", {
-      title: fromQueue ? "Planned Stabilization" : "Local Stabilization",
-      description: fromQueue
-        ? `Planned order calms ${territoryLabel(target)}.`
-        : `Intervention calms ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-  } else if (normalizedAction === "invest") {
-    target.richness = clamp(target.richness + 10);
-    target.stability = clamp(target.stability + 2);
-    target.tension = clamp(target.tension + 1);
-
-    pushEvent(world, createEvent(world, "discovery", {
-      title: fromQueue ? "Planned Investment" : "Economic Investment",
-      description: fromQueue
-        ? `Planned funding boosts production in ${territoryLabel(target)}.`
-        : `Investment boosts production in ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-  } else if (normalizedAction === "influence") {
-    const neighbors = getWorldNeighbors(world, target.x, target.y);
-    const candidate = [...neighbors].sort((a, b) => b.stability - a.stability)[0];
-
-    if (candidate && candidate.owner !== target.owner) {
-      target.owner = candidate.owner;
-      target.stability = clamp(target.stability - 2);
-      target.tension = clamp(target.tension + 5);
-
-      pushEvent(world, createEvent(world, "expansion", {
-        title: fromQueue ? "Planned Influence Shift" : "Influence Shift",
-        description: fromQueue
-          ? `Planned pressure shifts ${territoryLabel(target)} toward ${factionName(world, candidate.owner)}.`
-          : `${territoryLabel(target)} shifts toward ${factionName(world, candidate.owner)}.`,
-        targetCellId: target.id,
-        factionId: candidate.owner
-      }));
-    } else {
-      target.stability = clamp(target.stability + 3);
-      pushEvent(world, createEvent(world, "alliance", {
-        title: fromQueue ? "Planned Influence Attempt" : "Influence Attempt",
-        description: fromQueue
-          ? `Planned campaign in ${territoryLabel(target)} stabilizes local ties.`
-          : `Influence campaign in ${territoryLabel(target)} stabilizes local ties.`,
-        targetCellId: target.id,
-        factionId: target.owner
-      }));
-    }
-  } else {
-    target.tension = clamp(target.tension + 13);
-    target.stability = clamp(target.stability - 7);
-
-    pushEvent(world, createEvent(world, "troubles", {
-      title: fromQueue ? "Planned Provocation" : "Provocation",
-      description: fromQueue
-        ? `A planned provocation inflames ${territoryLabel(target)}.`
-        : `A provocation inflames ${territoryLabel(target)}.`,
-      targetCellId: target.id,
-      factionId: target.owner
-    }));
-  }
-
-  updateFactionStats(world);
-  return world;
-}
-
-export function resolveWorldTurn(world: World): World {
-  const queued = [...world.queuedActions];
-  world.queuedActions = [];
-  const highlights: string[] = [];
-
-  for (const command of world.submittedCommands) {
-    if (command.status === "queued") {
-      command.status = "cancelled";
-    }
-  }
-
-  for (const planned of queued) {
-    const targetBefore = world.cells.find((cell) => cell.id === planned.cellId);
-    const before = targetBefore
-      ? { richness: targetBefore.richness, stability: targetBefore.stability, tension: targetBefore.tension }
-      : null;
-
-    applyPlayerAction(world, planned.cellId, planned.action, { skipCost: true, source: "queued" });
-
-    const linkedCommand = world.submittedCommands.find((command) => command.linkedQueuedActionId === planned.id);
-    if (linkedCommand) {
-      linkedCommand.status = "applied";
-    }
-
-    const targetAfter = world.cells.find((cell) => cell.id === planned.cellId);
-    if (targetAfter && before) {
-      highlights.push(
-        `${planned.action.toUpperCase()} ${territoryLabel(targetAfter)} | R ${before.richness}->${targetAfter.richness}, S ${before.stability}->${targetAfter.stability}, T ${before.tension}->${targetAfter.tension}`
-      );
-    }
-  }
-
-  const result = tickWorld(world);
-  result.actionPoints = result.maxActionPoints;
-
-  pushEvent(result, createEvent(result, "alliance", {
-    title: "Turn Resolved",
-    description:
-      queued.length > 0
-        ? `${queued.length} planned actions were executed before simulation updates.`
-        : "No planned actions submitted. Simulation advanced naturally."
-  }));
-
-  const report: TurnResolutionReport = {
-    tick: result.tick,
-    year: result.year,
-    executedCount: queued.length,
-    highlights:
-      highlights.length > 0
-        ? highlights.slice(0, 6)
-        : ["Aucun ordre applique. Le monde evolue uniquement via la simulation globale."]
-  };
-
-  result.lastResolutionReport = report;
-
   return result;
 }
 
-export function jumpWorld(world: World, step: JumpStep): World {
-  const originTick = world.tick;
-  const originYear = world.year;
-  const ticksToAdvance = Math.max(1, ticksForJumpStep(step));
-
-  const resolved = resolveWorldTurn(world);
-  for (let i = 1; i < ticksToAdvance; i += 1) {
-    tickWorld(resolved);
-  }
-
-  resolved.actionPoints = resolved.maxActionPoints;
-
-  pushEvent(resolved, createEvent(resolved, "discovery", {
-    title: "Time Jump Complete",
-    description: `Jump ${step} applied: tick ${originTick} -> ${resolved.tick}, year ${originYear} -> ${resolved.year}.`
-  }));
-
-  if (resolved.lastResolutionReport) {
-    resolved.lastResolutionReport = {
-      ...resolved.lastResolutionReport,
-      tick: resolved.tick,
-      year: resolved.year,
-      highlights: [
-        ...resolved.lastResolutionReport.highlights,
-        `Saut temporel ${step}: +${ticksToAdvance} ticks.`
-      ].slice(0, 8)
-    };
-  }
-
-  return resolved;
+function seededDelta(seed: string): number {
+  return (hash(seed) % 5) - 2;
 }
 
-export function jumpToNextMajorEvent(world: World): World {
-  const originTick = world.tick;
-  const originYear = world.year;
-  const maxTicks = 24;
-
-  const resolved = resolveWorldTurn(world);
-  let found = resolved.events.find((event) => event.tick === resolved.tick && isMajorEvent(event));
-  let loops = 1;
-
-  while (!found && loops < maxTicks) {
-    tickWorld(resolved);
-    loops += 1;
-    found = resolved.events.find((event) => event.tick === resolved.tick && isMajorEvent(event));
-  }
-
-  resolved.actionPoints = resolved.maxActionPoints;
-
-  pushEvent(resolved, createEvent(resolved, found ? found.type : "discovery", {
-    title: "Next Major Event Reached",
-    description: found
-      ? `Major event reached after ${loops} ticks: ${found.title}. (tick ${originTick} -> ${resolved.tick}, year ${originYear} -> ${resolved.year})`
-      : `No major event detected in ${loops} ticks. World advanced to tick ${resolved.tick}, year ${resolved.year}.`,
-    targetCellId: found?.targetCellId,
-    factionId: found?.factionId
-  }));
-
-  if (resolved.lastResolutionReport) {
-    resolved.lastResolutionReport = {
-      ...resolved.lastResolutionReport,
-      tick: resolved.tick,
-      year: resolved.year,
-      highlights: [
-        ...resolved.lastResolutionReport.highlights,
-        found
-          ? `Evenement majeur trouve: ${found.title} apres ${loops} ticks.`
-          : `Aucun evenement majeur detecte apres ${loops} ticks.`
-      ].slice(0, 8)
-    };
-  }
-
-  return resolved;
+function createEvent(
+  game: GameState,
+  type: GameEvent["type"],
+  title: string,
+  description: string,
+  countryId?: string
+): GameEvent {
+  return {
+    id: `${game.id}-evt-${game.tick}-${game.events.length + 1}`,
+    type,
+    tick: game.tick,
+    year: game.year,
+    month: game.month,
+    title,
+    description,
+    countryId
+  };
 }
 
-export function tickWorld(world: World): World {
-  world.tick += 1;
-  world.year += 1;
-  world.actionPoints = clamp(world.actionPoints + 1, 0, world.maxActionPoints);
+function detectOrderKind(text: string): TurnOrderKind {
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
-  const snapshot = new Map(world.cells.map((cell) => [cell.id, { ...cell }]));
-  let ownerChanges = 0;
+  if (/\b(stabil|pacif|ordre|secur|calm|secure)\b/.test(normalized)) return "stabilize";
+  if (/\b(invest|industry|eco|infrastructure|budget|commerce)\b/.test(normalized)) return "invest";
+  if (/\b(alliance|treaty|pact|negot|diplom|talk|cooper)\b/.test(normalized)) return "diplomacy";
+  if (/\b(attack|war|invade|military|offensive|strike)\b/.test(normalized)) return "military";
+  return "pressure";
+}
 
-  for (const cell of world.cells) {
-    const before = snapshot.get(cell.id);
-    if (!before) continue;
+function detectTargetCountryId(game: GameState, text: string): string {
+  const normalizedText = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
-    const neighbors = getNeighbors(snapshot, before.x, before.y);
-    const neighborTensionAvg = neighbors.length > 0
-      ? average(neighbors.map((neighbor) => neighbor.tension))
-      : before.tension;
-
-    const noise = deterministicDelta(world, cell.id);
-
-    let richnessDelta = noise + (before.stability >= 60 ? 1 : 0) - (before.tension >= 62 ? 1 : 0);
-    let tensionDelta = trendToward(before.tension, neighborTensionAvg) + (noise > 0 ? 1 : noise < 0 ? -1 : 0);
-    let stabilityDelta = (before.tension >= 62 ? -2 : 1) + (neighborTensionAvg >= 68 ? -1 : 0);
-
-    if (world.kind === "historical" && world.year >= 2011 && world.year <= 2015) {
-      if (cell.continent === "Africa" || cell.continent === "Asia") {
-        tensionDelta += 1;
-      }
-    }
-
-    if (world.kind === "historical" && world.year >= 2017 && world.year <= 2019) {
-      stabilityDelta += 1;
-    }
-
-    cell.richness = clamp(before.richness + richnessDelta);
-    cell.tension = clamp(before.tension + tensionDelta);
-    cell.stability = clamp(before.stability + stabilityDelta);
-
-    if (before.tension > 72 && before.stability < 36 && neighbors.length > 0) {
-      const candidate = [...neighbors].sort((a, b) => b.stability - a.stability)[0];
-      if (candidate && candidate.owner !== before.owner) {
-        cell.owner = candidate.owner;
-        ownerChanges += 1;
-      }
+  const byLongestName = [...game.countries].sort((a, b) => b.name.length - a.name.length);
+  for (const country of byLongestName) {
+    const normalizedCountry = country.name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (normalizedCountry.length >= 3 && normalizedText.includes(normalizedCountry)) {
+      return country.id;
     }
   }
 
-  const avgStability = average(world.cells.map((cell) => cell.stability));
-  const avgRichness = average(world.cells.map((cell) => cell.richness));
-  const highTension = world.cells.filter((cell) => cell.tension > 68).length;
+  return game.playerCountryId;
+}
 
-  const milestoneApplied = applyHistoricalMilestone(world);
+function getCountry(game: GameState, countryId: string) {
+  return game.countries.find((country) => country.id === countryId);
+}
 
-  let autoEventType: EventType | null = null;
-  if (!milestoneApplied) {
-    if (ownerChanges > 0) {
-      autoEventType = "expansion";
-    } else if (highTension >= Math.ceil(world.cells.length * 0.23)) {
-      autoEventType = "troubles";
-    } else if (avgStability >= 70 && world.tick % 4 === 0) {
-      autoEventType = "alliance";
-    } else if (avgRichness >= 63 && world.tick % 3 === 0) {
-      autoEventType = "discovery";
-    } else if (avgStability <= 42) {
-      autoEventType = "crisis_local";
-    }
-  }
+function applyOrderEffect(game: GameState, order: TurnOrder, highlights: string[]): void {
+  const target = getCountry(game, order.targetCountryId);
+  if (!target) return;
 
-  if (autoEventType) {
-    triggerWorldEvent(world, autoEventType);
+  const before = {
+    wealth: target.wealth,
+    stability: target.stability,
+    tension: target.tension,
+    relation: target.relationToPlayer
+  };
+
+  if (order.kind === "stabilize") {
+    target.stability = clamp(target.stability + 8, 0, 100);
+    target.tension = clamp(target.tension - 7, 0, 100);
+    target.relationToPlayer = clamp(target.relationToPlayer + 3, -100, 100);
+  } else if (order.kind === "invest") {
+    target.wealth = clamp(target.wealth + 10, 0, 100);
+    target.stability = clamp(target.stability + 3, 0, 100);
+    target.tension = clamp(target.tension + 1, 0, 100);
+  } else if (order.kind === "diplomacy") {
+    target.relationToPlayer = clamp(target.relationToPlayer + 10, -100, 100);
+    target.tension = clamp(target.tension - 3, 0, 100);
+    target.stability = clamp(target.stability + 1, 0, 100);
+  } else if (order.kind === "military") {
+    target.tension = clamp(target.tension + 12, 0, 100);
+    target.stability = clamp(target.stability - 8, 0, 100);
+    target.wealth = clamp(target.wealth - 4, 0, 100);
+    target.relationToPlayer = clamp(target.relationToPlayer - 12, -100, 100);
   } else {
-    updateFactionStats(world);
+    target.tension = clamp(target.tension + 7, 0, 100);
+    target.stability = clamp(target.stability - 2, 0, 100);
+    target.relationToPlayer = clamp(target.relationToPlayer - 6, -100, 100);
   }
 
-  return world;
+  highlights.push(
+    `${order.kind.toUpperCase()} on ${target.name}: W ${before.wealth}->${target.wealth}, S ${before.stability}->${target.stability}, T ${before.tension}->${target.tension}`
+  );
+
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      "order",
+      `Order Applied: ${order.kind}`,
+      `${safeCountryName(game, order.targetCountryId)} impacted by order: "${order.text}".`,
+      order.targetCountryId
+    )
+  );
 }
 
+function simulateNaturalDynamics(game: GameState): GameEvent | null {
+  const tensionByContinent = new Map<string, { total: number; count: number }>();
+  for (const country of game.countries) {
+    const acc = tensionByContinent.get(country.continent) ?? { total: 0, count: 0 };
+    acc.total += country.tension;
+    acc.count += 1;
+    tensionByContinent.set(country.continent, acc);
+  }
 
+  for (const country of game.countries) {
+    const acc = tensionByContinent.get(country.continent);
+    const continentAvgTension = acc ? Math.round(acc.total / Math.max(1, acc.count)) : country.tension;
+
+    const noise = seededDelta(`${game.id}:${game.tick}:${country.id}`);
+    const tensionTrend = country.tension < continentAvgTension ? 1 : country.tension > continentAvgTension ? -1 : 0;
+
+    country.wealth = clamp(
+      country.wealth + noise + (country.stability >= 62 ? 1 : 0) - (country.tension >= 68 ? 2 : 0),
+      0,
+      100
+    );
+    country.tension = clamp(
+      country.tension + tensionTrend + (country.relationToPlayer <= -40 ? 1 : 0) + (noise > 1 ? 1 : 0),
+      0,
+      100
+    );
+    country.stability = clamp(
+      country.stability + (country.tension >= 70 ? -2 : 1) + (country.wealth <= 35 ? -1 : 0) + (country.relationToPlayer >= 45 ? 1 : 0),
+      0,
+      100
+    );
+
+    if (country.id !== game.playerCountryId) {
+      const relationDrift = country.relationToPlayer > 0 ? -1 : country.relationToPlayer < 0 ? 1 : 0;
+      country.relationToPlayer = clamp(country.relationToPlayer + relationDrift, -100, 100);
+    }
+  }
+
+  const indicators = computeIndicators(game.countries);
+  const highTension = game.countries.filter((country) => country.tension >= 74);
+  const worstRelation = [...game.countries].sort((a, b) => a.relationToPlayer - b.relationToPlayer)[0];
+
+  if (highTension.length >= Math.ceil(game.countries.length * 0.2)) {
+    const target = [...highTension].sort((a, b) => b.tension - a.tension)[0];
+    return createEvent(
+      game,
+      "major_crisis",
+      "Regional Crisis Escalates",
+      `${target.name} becomes a flashpoint with severe domestic pressure and external risk.`,
+      target.id
+    );
+  }
+
+  if (indicators.avgStability >= 66 && game.tick % 4 === 0) {
+    return createEvent(
+      game,
+      "major_diplomacy",
+      "Bloc Summit",
+      "A new diplomatic summit reshapes alignments between major blocs."
+    );
+  }
+
+  if (indicators.avgWealth >= 64 && game.tick % 6 === 0) {
+    return createEvent(
+      game,
+      "major_growth",
+      "Global Growth Wave",
+      "Economic momentum spreads across multiple regions, accelerating strategic competition."
+    );
+  }
+
+  if (worstRelation && worstRelation.relationToPlayer <= -65 && game.tick % 5 === 0) {
+    return createEvent(
+      game,
+      "major_conflict",
+      "Strategic Confrontation",
+      `${worstRelation.name} enters open confrontation rhetoric against your bloc.`,
+      worstRelation.id
+    );
+  }
+
+  return null;
+}
+
+function runRound(game: GameState): GameEvent | null {
+  const queued = [...game.queuedOrders];
+  game.queuedOrders = [];
+
+  const highlights: string[] = [];
+  for (const order of queued) {
+    order.status = "resolved";
+    applyOrderEffect(game, order, highlights);
+  }
+
+  game.tick += 1;
+  advanceCalendar(game);
+
+  const majorEvent = simulateNaturalDynamics(game);
+  if (majorEvent) {
+    pushEvent(game, majorEvent);
+  }
+
+  game.actionPoints = game.maxActionPoints;
+  game.indicators = computeIndicators(game.countries);
+
+  game.lastRoundSummary = {
+    tick: game.tick,
+    year: game.year,
+    month: game.month,
+    appliedOrders: queued.length,
+    highlights:
+      highlights.length > 0
+        ? highlights.slice(0, 8)
+        : ["No direct orders were applied this round. World evolution came from simulation dynamics."]
+  };
+
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      "system",
+      "Round Resolved",
+      `${queued.length} order(s) resolved. Global tension ${game.indicators.avgTension}, stability ${game.indicators.avgStability}.`
+    )
+  );
+
+  return majorEvent;
+}
+
+function ticksForStep(step: JumpStep): number {
+  if (step === "week") return 1;
+  if (step === "month") return 1;
+  if (step === "quarter") return 3;
+  return 12;
+}
+
+export function queueOrder(game: GameState, text: string): GameState {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error("Order text cannot be empty.");
+  }
+
+  if (game.actionPoints <= 0 || game.queuedOrders.length >= game.maxActionPoints) {
+    throw new Error("No action points available. Jump forward to start a new round.");
+  }
+
+  const kind = detectOrderKind(trimmed);
+  const targetCountryId = detectTargetCountryId(game, trimmed);
+
+  const order: TurnOrder = {
+    id: `${game.id}-order-${game.tick}-${game.queuedOrders.length + 1}`,
+    text: trimmed,
+    kind,
+    targetCountryId,
+    status: "queued",
+    tickSubmitted: game.tick
+  };
+
+  game.queuedOrders.push(order);
+  game.actionPoints = clamp(game.actionPoints - 1, 0, game.maxActionPoints);
+
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      "order",
+      "Order Queued",
+      `${kind.toUpperCase()} queued for ${safeCountryName(game, targetCountryId)}.`,
+      targetCountryId
+    )
+  );
+
+  saveGame(game);
+  return game;
+}
+
+export function removeOrder(game: GameState, orderId: string): GameState {
+  const index = game.queuedOrders.findIndex((order) => order.id === orderId);
+  if (index < 0) {
+    throw new Error("Order not found.");
+  }
+
+  const [removed] = game.queuedOrders.splice(index, 1);
+  if (removed.status === "queued") {
+    game.actionPoints = clamp(game.actionPoints + 1, 0, game.maxActionPoints);
+  }
+
+  removed.status = "cancelled";
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      "order",
+      "Order Removed",
+      `${removed.kind.toUpperCase()} removed from queue for ${safeCountryName(game, removed.targetCountryId)}.`,
+      removed.targetCountryId
+    )
+  );
+
+  saveGame(game);
+  return game;
+}
+
+export function jumpForward(game: GameState, step: JumpStep): GameState {
+  const ticks = ticksForStep(step);
+  const startTick = game.tick;
+  const startYear = game.year;
+  const startMonth = game.month;
+
+  for (let i = 0; i < ticks; i += 1) {
+    runRound(game);
+  }
+
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      "system",
+      "Jump Forward",
+      `Jump (${step}) completed: ${startYear}-${startMonth} (tick ${startTick}) -> ${game.year}-${game.month} (tick ${game.tick}).`
+    )
+  );
+
+  saveGame(game);
+  return game;
+}
+
+function isMajor(event: GameEvent | null): boolean {
+  if (!event) return false;
+  return event.type.startsWith("major_");
+}
+
+export function jumpToMajorEvent(game: GameState): GameState {
+  const maxRounds = 18;
+  const startTick = game.tick;
+  let found: GameEvent | null = null;
+
+  for (let i = 0; i < maxRounds; i += 1) {
+    const major = runRound(game);
+    if (isMajor(major)) {
+      found = major;
+      break;
+    }
+  }
+
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      found ? found.type : "system",
+      "Next Major Event",
+      found
+        ? `Reached major event after ${game.tick - startTick} rounds: ${found.title}.`
+        : `No major event detected after ${maxRounds} rounds.`
+    )
+  );
+
+  saveGame(game);
+  return game;
+}
+
+export function sendDiplomacyMessage(game: GameState, targetCountryId: string, message: string): DiplomacyExchange {
+  const target = getCountry(game, normalizeCountryId(targetCountryId));
+  if (!target) {
+    throw new Error("Target country not found.");
+  }
+
+  const trimmed = message.trim();
+  if (!trimmed) {
+    throw new Error("Diplomacy message cannot be empty.");
+  }
+
+  const normalized = trimmed
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const aggressive = /\b(attack|war|ultimatum|sanction|threat|invade)\b/.test(normalized);
+  const cooperative = /\b(alliance|pact|trade|peace|cooperation|accord)\b/.test(normalized);
+
+  let stance: DiplomacyExchange["stance"] = "neutral";
+  if (aggressive || target.relationToPlayer <= -35 || target.tension >= 70) {
+    stance = "hostile";
+  } else if (cooperative || target.relationToPlayer >= 25 || target.tension <= 40) {
+    stance = "friendly";
+  }
+
+  if (stance === "hostile") {
+    target.relationToPlayer = clamp(target.relationToPlayer - 10, -100, 100);
+    target.tension = clamp(target.tension + 4, 0, 100);
+  } else if (stance === "friendly") {
+    target.relationToPlayer = clamp(target.relationToPlayer + 10, -100, 100);
+    target.tension = clamp(target.tension - 3, 0, 100);
+    target.stability = clamp(target.stability + 1, 0, 100);
+  } else {
+    target.relationToPlayer = clamp(target.relationToPlayer + 1, -100, 100);
+  }
+
+  const reply =
+    stance === "hostile"
+      ? `${target.name} rejects your position and shifts to defensive mobilization.`
+      : stance === "friendly"
+        ? `${target.name} accepts opening a negotiation channel and signals willingness for a phased agreement.`
+        : `${target.name} remains cautious and requests concrete guarantees before committing.`;
+
+  const exchange: DiplomacyExchange = {
+    id: `${game.id}-dip-${game.tick}-${game.diplomacyLog.length + 1}`,
+    tick: game.tick,
+    year: game.year,
+    month: game.month,
+    targetCountryId: target.id,
+    targetCountryName: target.name,
+    message: trimmed,
+    stance,
+    reply
+  };
+
+  game.diplomacyLog.unshift(exchange);
+  if (game.diplomacyLog.length > 40) {
+    game.diplomacyLog = game.diplomacyLog.slice(0, 40);
+  }
+
+  pushEvent(
+    game,
+    createEvent(
+      game,
+      "diplomacy",
+      `Diplomatic Exchange: ${target.name}`,
+      `${trimmed} | Reply: ${reply}`,
+      target.id
+    )
+  );
+
+  game.indicators = computeIndicators(game.countries);
+  saveGame(game);
+  return exchange;
+}

@@ -1,40 +1,26 @@
-import {
-  type CreateWorldInput,
-  type Faction,
-  type MapSize,
-  type PoliticalComplexity,
-  type RoleType,
-  type World,
-  type WorldCell,
-  type WorldEvent,
-  type WorldKind
+﻿import type {
+  CountryDescriptor,
+  CountryState,
+  CreateGameInput,
+  GameEvent,
+  GameState,
+  ScenarioDescriptor,
+  ScenarioId,
+  WorldIndicators
 } from "@genesis/shared";
-import { findCountryAnchor, normalizeCountryKey } from "./data/countryAnchors.js";
+import { COUNTRY_ANCHORS, normalizeCountryKey } from "./data/countryAnchors.js";
 
-const worlds = new Map<string, World>();
+const games = new Map<string, GameState>();
 
-const historicalFactionNames = [
-  "Atlantic Accord",
-  "Eurasian Compact",
-  "Pacific Forum",
-  "South Coalition",
-  "Non-Aligned Front"
+const SCENARIOS: ScenarioDescriptor[] = [
+  {
+    id: "earth-2010",
+    name: "Earth 2010",
+    description: "Historical baseline focused on geopolitical divergence from 2010.",
+    startYear: 2010,
+    startMonth: 1
+  }
 ];
-
-const fictionalFactionNames = [
-  "Ashen Circle",
-  "Verdant Pact",
-  "Solaris Combine",
-  "Obsidian Court",
-  "Aurora Syndicate"
-];
-
-const fictionalContinents = ["Nordreach", "Verdelune", "Duskfall", "Sables d'Astra"];
-
-type GeoProfile = {
-  continent: string;
-  country: string;
-};
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -43,402 +29,228 @@ function clamp(value: number, min: number, max: number): number {
 function hash(seed: string): number {
   let result = 0;
   for (let i = 0; i < seed.length; i += 1) {
-    result = (result * 33 + seed.charCodeAt(i)) % 100003;
+    result = (result * 33 + seed.charCodeAt(i)) % 1000003;
   }
   return result;
 }
 
-function valueBetween(seed: string, min: number, max: number): number {
+function seededRange(seed: string, min: number, max: number): number {
   const span = max - min + 1;
   return min + (hash(seed) % span);
 }
 
-function dimensionsFromSize(size: MapSize): { width: number; height: number } {
-  if (size === "small") return { width: 8, height: 8 };
-  if (size === "large") return { width: 14, height: 14 };
-  return { width: 10, height: 10 };
+function blocForContinent(continent: string): string {
+  if (continent === "Europe" || continent === "North America") return "Atlantic Accord";
+  if (continent === "Asia") return "Eurasian Compact";
+  if (continent === "Oceania") return "Pacific Forum";
+  if (continent === "South America") return "Southern League";
+  return "Non-Aligned Assembly";
 }
 
-function resolveDimensions(input: CreateWorldInput): { width: number; height: number } {
-  if (input.width && input.height) {
-    return {
-      width: clamp(input.width, 5, 20),
-      height: clamp(input.height, 5, 20)
-    };
-  }
+function buildCountryCatalog(): CountryDescriptor[] {
+  const catalog = new Map<string, CountryDescriptor>();
 
-  return dimensionsFromSize(input.mapSize ?? "medium");
-}
+  for (const anchor of Object.values(COUNTRY_ANCHORS)) {
+    if (!anchor.name || !anchor.continent) continue;
+    if (anchor.continent === "Seven seas (open ocean)") continue;
+    if (anchor.continent === "Antarctica") continue;
 
-function factionCountFromComplexity(complexity: PoliticalComplexity): number {
-  if (complexity === "low") return 2;
-  if (complexity === "high") return 5;
-  return 3;
-}
-
-function createFactions(kind: WorldKind, complexity: PoliticalComplexity): Faction[] {
-  const source = kind === "historical" ? historicalFactionNames : fictionalFactionNames;
-  const count = factionCountFromComplexity(complexity);
-
-  return source.slice(0, count).map((name, index) => ({
-    id: `faction-${index + 1}`,
-    name,
-    power: 45 + index * 7,
-    resources: 50 + index * 4
-  }));
-}
-
-type FactionCenter = {
-  id: string;
-  x: number;
-  y: number;
-};
-
-function createFactionCenters(width: number, height: number, factions: Faction[]): FactionCenter[] {
-  const maxX = width - 1;
-  const maxY = height - 1;
-
-  return factions.map((faction, index) => {
-    const x = Math.round((index + 1) * (maxX / (factions.length + 1)));
-    const y = index % 2 === 0 ? Math.round(maxY * 0.25) : Math.round(maxY * 0.75);
-    return { id: faction.id, x, y };
-  });
-}
-
-function ownerFromCenters(x: number, y: number, centers: FactionCenter[]): string {
-  let winner = centers[0]?.id ?? "neutral";
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const center of centers) {
-    const dist = Math.abs(center.x - x) + Math.abs(center.y - y);
-    if (dist < bestDistance) {
-      bestDistance = dist;
-      winner = center.id;
+    const id = normalizeCountryKey(anchor.name);
+    if (!id) continue;
+    if (!catalog.has(id)) {
+      catalog.set(id, {
+        id,
+        name: anchor.name,
+        continent: anchor.continent
+      });
     }
   }
 
-  return winner;
+  return [...catalog.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function longitudeFromX(x: number, width: number): number {
-  if (width <= 1) return 0;
-  return (x / (width - 1)) * 360 - 180;
+const COUNTRY_CATALOG = buildCountryCatalog();
+
+function scenarioById(id: ScenarioId): ScenarioDescriptor {
+  return SCENARIOS.find((scenario) => scenario.id === id) ?? SCENARIOS[0];
 }
 
-function latitudeFromY(y: number, height: number): number {
-  if (height <= 1) return 0;
-  return 90 - (y / (height - 1)) * 180;
+export function listScenarios(): ScenarioDescriptor[] {
+  return SCENARIOS;
 }
 
-function inBox(
-  lon: number,
-  lat: number,
-  minLon: number,
-  maxLon: number,
-  minLat: number,
-  maxLat: number
-): boolean {
-  return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
+export function listCountries(_scenarioId?: ScenarioId): CountryDescriptor[] {
+  return COUNTRY_CATALOG;
 }
 
-function historicalGeoFromCell(x: number, y: number, width: number, height: number): GeoProfile {
-  const lon = longitudeFromX(x, width);
-  const lat = latitudeFromY(y, height);
+function fallbackCountry(id: string): CountryDescriptor {
+  const fromCatalog = COUNTRY_CATALOG.find((country) => country.id === id);
+  if (fromCatalog) return fromCatalog;
 
-  if (inBox(lon, lat, -170, -50, 15, 80)) {
-    if (lon < -105) return { continent: "North America", country: "Canada" };
-    if (lat < 30) return { continent: "North America", country: "Mexico" };
-    return { continent: "North America", country: "United States" };
-  }
-
-  if (inBox(lon, lat, -90, -30, -55, 15)) {
-    if (lat < -25) return { continent: "South America", country: "Argentina" };
-    if (lon < -65) return { continent: "South America", country: "Andean States" };
-    return { continent: "South America", country: "Brazil" };
-  }
-
-  if (inBox(lon, lat, -15, 45, 35, 72)) {
-    if (lon < -2) return { continent: "Europe", country: "United Kingdom" };
-    if (lon < 12) return { continent: "Europe", country: "France" };
-    if (lon < 25) return { continent: "Europe", country: "Germany" };
-    return { continent: "Europe", country: "Russia" };
-  }
-
-  if (inBox(lon, lat, -20, 55, -35, 35)) {
-    if (lat > 18) return { continent: "Africa", country: "Egypt" };
-    if (lat < -18) return { continent: "Africa", country: "South Africa" };
-    if (lon > 30) return { continent: "Africa", country: "Ethiopia" };
-    return { continent: "Africa", country: "West Africa" };
-  }
-
-  if (inBox(lon, lat, 45, 160, 5, 78)) {
-    if (lon < 70) return { continent: "Asia", country: "Turkey" };
-    if (lon < 110) return { continent: "Asia", country: "China" };
-    if (lon < 130) return { continent: "Asia", country: "Korean Peninsula" };
-    return { continent: "Asia", country: "Japan" };
-  }
-
-  if (inBox(lon, lat, 110, 180, -50, 5)) {
-    if (lon > 155) return { continent: "Oceania", country: "Pacific Islands" };
-    return { continent: "Oceania", country: "Australia" };
-  }
-
-  if (lat >= 20) return { continent: "Europe", country: "Frontier Europe" };
-  if (lat <= -15) return { continent: "South America", country: "Atlantic South" };
-  return { continent: "Africa", country: "Equatorial Belt" };
-}
-
-function fictionalGeoFromCell(x: number, y: number, width: number, height: number): GeoProfile {
-  const northBand = Math.floor(height * 0.28);
-  const southBand = Math.floor(height * 0.72);
-  const westBand = Math.floor(width * 0.45);
-
-  let continent = fictionalContinents[2];
-  if (y <= northBand) continent = fictionalContinents[0];
-  else if (y >= southBand) continent = fictionalContinents[3];
-  else if (x <= westBand) continent = fictionalContinents[1];
-
-  const sector = 1 + ((x * 7 + y * 11) % 4);
-  return { continent, country: `${continent} Sector ${sector}` };
-}
-
-function geoFromCell(kind: WorldKind, x: number, y: number, width: number, height: number): GeoProfile {
-  if (kind === "historical") {
-    return historicalGeoFromCell(x, y, width, height);
-  }
-  return fictionalGeoFromCell(x, y, width, height);
-}
-
-function createCell(x: number, y: number, owner: string, geo: GeoProfile, worldId: string): WorldCell {
-  const seed = `${worldId}:${x}:${y}`;
+  const customName = id.trim().length > 0 ? id.trim() : "Custom State";
   return {
-    id: `${x}-${y}`,
-    x,
-    y,
-    owner,
-    continent: geo.continent,
-    country: geo.country,
-    richness: valueBetween(`${seed}:richness`, 38, 68),
-    stability: valueBetween(`${seed}:stability`, 45, 75),
-    tension: valueBetween(`${seed}:tension`, 18, 48)
+    id: normalizeCountryKey(customName) || "custom-state",
+    name: customName,
+    continent: "Europe"
   };
 }
 
-function resolveHistoricalStartCountry(input: CreateWorldInput, cells: WorldCell[]): string {
-  const requested = typeof input.startCountry === "string" ? input.startCountry.trim() : "";
-  if (requested.length > 0) {
-    return requested;
-  }
+function createCountryState(country: CountryDescriptor, playerCountryId: string): CountryState {
+  const seed = `country:${country.id}`;
 
-  return cells[0]?.country ?? "France";
-}
-
-function firstCellForCountry(cells: WorldCell[], country: string): WorldCell | undefined {
-  const key = normalizeCountryKey(country);
-  return cells.find((cell) => normalizeCountryKey(cell.country) === key);
-}
-
-function nearestCellByAnchor(
-  cells: WorldCell[],
-  width: number,
-  height: number,
-  anchorLon: number,
-  anchorLat: number
-): WorldCell | undefined {
-  let best: WorldCell | undefined;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (const cell of cells) {
-    const lon = longitudeFromX(cell.x, width);
-    const lat = latitudeFromY(cell.y, height);
-    const score = (lon - anchorLon) ** 2 + (lat - anchorLat) ** 2;
-    if (score < bestScore) {
-      best = cell;
-      bestScore = score;
-    }
-  }
-
-  return best;
-}
-
-function ensureStartCountryPresence(
-  cells: WorldCell[],
-  width: number,
-  height: number,
-  country: string
-): WorldCell | undefined {
-  const existing = firstCellForCountry(cells, country);
-  if (existing) {
-    existing.country = country;
-    return existing;
-  }
-
-  const anchor = findCountryAnchor(country);
-  const fallbackIndex = Math.abs(hash(`start-country:${country}`)) % Math.max(1, cells.length);
-  const fallback = cells[fallbackIndex] ?? cells[0];
-  const nearest = anchor
-    ? nearestCellByAnchor(cells, width, height, anchor.lon, anchor.lat)
-    : fallback;
-  const target = nearest ?? fallback;
-  if (!target) return undefined;
-
-  target.country = anchor?.name ?? country;
-  if (anchor?.continent && anchor.continent !== "Seven seas (open ocean)") {
-    target.continent = anchor.continent;
-  }
-  return target;
-}
-
-function alignCountryOwnership(cells: WorldCell[], country: string, factionId: string): void {
-  const key = normalizeCountryKey(country);
-  for (const cell of cells) {
-    if (normalizeCountryKey(cell.country) !== key) continue;
-    cell.owner = factionId;
-    cell.stability = clamp(cell.stability + 4, 0, 100);
-    cell.tension = clamp(cell.tension - 3, 0, 100);
-  }
-}
-
-function createInitialEvent(world: World): WorldEvent {
-  const type = world.kind === "historical" ? "alliance" : "discovery";
   return {
-    id: `${world.id}-evt-0`,
-    tick: 0,
+    id: country.id,
+    name: country.name,
+    continent: country.continent,
+    bloc: blocForContinent(country.continent),
+    wealth: seededRange(`${seed}:wealth`, 40, 74),
+    stability: seededRange(`${seed}:stability`, 45, 78),
+    tension: seededRange(`${seed}:tension`, 18, 55),
+    relationToPlayer:
+      country.id === playerCountryId
+        ? 85
+        : seededRange(`${seed}:relation`, -25, 35)
+  };
+}
+
+export function computeIndicators(countries: CountryState[]): WorldIndicators {
+  const count = Math.max(1, countries.length);
+  const avgStability = Math.round(countries.reduce((sum, country) => sum + country.stability, 0) / count);
+  const avgWealth = Math.round(countries.reduce((sum, country) => sum + country.wealth, 0) / count);
+  const avgTension = Math.round(countries.reduce((sum, country) => sum + country.tension, 0) / count);
+
+  let conflictLevel: WorldIndicators["conflictLevel"] = "Low";
+  if (avgTension >= 62) conflictLevel = "High";
+  else if (avgTension >= 47) conflictLevel = "Medium";
+
+  return { avgStability, avgWealth, avgTension, conflictLevel };
+}
+
+function createEvent(
+  state: GameState,
+  type: GameEvent["type"],
+  title: string,
+  description: string,
+  countryId?: string
+): GameEvent {
+  return {
+    id: `${state.id}-evt-${state.tick}-${state.events.length + 1}`,
     type,
-    title: world.kind === "historical" ? "Historical Scenario Loaded" : "World Initialized",
-    description:
-      world.kind === "historical"
-        ? `${world.name} starts in ${world.year} with ${world.factions.length} power blocs.`
-        : `${world.name} starts with ${world.factions.length} active factions.`
+    tick: state.tick,
+    year: state.year,
+    month: state.month,
+    title,
+    description,
+    countryId
   };
 }
 
-function createNationStartEvent(world: World): WorldEvent | null {
-  if (!world.countryLocked || !world.playerCountry || !world.playerFactionId) {
-    return null;
+export function pushEvent(state: GameState, event: GameEvent): void {
+  state.events.unshift(event);
+  if (state.events.length > 120) {
+    state.events = state.events.slice(0, 120);
+  }
+}
+
+export function createGame(input: CreateGameInput): GameState {
+  const scenario = scenarioById(input.scenarioId);
+  const requestedCountryId = normalizeCountryKey(input.countryId);
+  const playerCountry = fallbackCountry(requestedCountryId || "france");
+
+  const countries = COUNTRY_CATALOG.map((country) => createCountryState(country, playerCountry.id));
+  if (!countries.some((country) => country.id === playerCountry.id)) {
+    countries.push(createCountryState(playerCountry, playerCountry.id));
   }
 
-  const factionName = world.factions.find((faction) => faction.id === world.playerFactionId)?.name ?? world.playerFactionId;
-
-  return {
-    id: `${world.id}-evt-player-start`,
-    tick: 0,
-    type: "alliance",
-    title: "Nation Selected",
-    description: `You start as ${world.playerCountry} under ${factionName}. Control is locked for this run.`,
-    targetCellId: world.startCellId,
-    factionId: world.playerFactionId
-  };
-}
-
-function scenarioIdFromKind(kind: WorldKind): string {
-  return kind === "historical" ? "earth-2010" : "frontier-sandbox";
-}
-
-function baseYearFromKind(kind: WorldKind): number {
-  return kind === "historical" ? 2010 : 2200;
-}
-
-function actionBudgetFromRole(role: RoleType): { actionPoints: number; maxActionPoints: number } {
-  if (role === "gm") return { actionPoints: 5, maxActionPoints: 5 };
-  if (role === "nation") return { actionPoints: 3, maxActionPoints: 3 };
-  if (role === "faction") return { actionPoints: 3, maxActionPoints: 3 };
-  return { actionPoints: 2, maxActionPoints: 2 };
-}
-
-export function createWorld(input: CreateWorldInput): World {
-  const id = `world-${Date.now()}`;
-  const kind: WorldKind = input.kind ?? "fictional";
-  const complexity: PoliticalComplexity = input.complexity ?? "medium";
-  const role = input.role ?? "hero";
-  const { width, height } = resolveDimensions(input);
-
-  const factions = createFactions(kind, complexity);
-  const centers = createFactionCenters(width, height, factions);
-
-  const cells: WorldCell[] = [];
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const owner = ownerFromCenters(x, y, centers);
-      const geo = geoFromCell(kind, x, y, width, height);
-      cells.push(createCell(x, y, owner, geo, id));
-    }
-  }
-
-  const actionBudget = actionBudgetFromRole(role);
-
-  const world: World = {
+  const id = `game-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const state: GameState = {
     id,
-    name: input.name?.trim() || "New Genesis World",
-    scenarioId: scenarioIdFromKind(kind),
-    year: baseYearFromKind(kind),
+    scenarioId: scenario.id,
+    scenarioName: scenario.name,
+    year: scenario.startYear,
+    month: scenario.startMonth,
     tick: 0,
-    actionPoints: actionBudget.actionPoints,
-    maxActionPoints: actionBudget.maxActionPoints,
-    width,
-    height,
-    role,
-    kind,
-    complexity,
-    playerCountry: undefined,
-    playerFactionId: undefined,
-    startCellId: undefined,
-    countryLocked: false,
-    queuedActions: [],
-    submittedCommands: [],
-    lastResolutionReport: undefined,
-    cells,
-    factions,
-    events: []
+    playerCountryId: playerCountry.id,
+    playerCountryName: playerCountry.name,
+    actionPoints: 3,
+    maxActionPoints: 3,
+    countries,
+    events: [],
+    queuedOrders: [],
+    diplomacyLog: [],
+    indicators: computeIndicators(countries)
   };
 
-  if (kind === "historical") {
-    const selectedCountry = resolveHistoricalStartCountry(input, cells);
-    const startCell = ensureStartCountryPresence(cells, width, height, selectedCountry) ?? cells[0];
+  pushEvent(
+    state,
+    createEvent(
+      state,
+      "system",
+      "Scenario Loaded",
+      `${scenario.name} initialized. You are now leading ${state.playerCountryName}.`
+    )
+  );
 
-    if (startCell) {
-      world.playerCountry = startCell.country;
-      world.startCellId = startCell.id;
+  pushEvent(
+    state,
+    createEvent(
+      state,
+      "major_diplomacy",
+      "World Briefing",
+      "Global blocs are active. Your first objective is to issue clear orders before the first jump."
+    )
+  );
 
-      if (role === "nation") {
-        world.playerFactionId = startCell.owner;
-        world.countryLocked = true;
-        alignCountryOwnership(cells, startCell.country, startCell.owner);
+  games.set(state.id, state);
+  return state;
+}
 
-        const playerFaction = factions.find((faction) => faction.id === startCell.owner);
-        if (playerFaction) {
-          playerFaction.power = clamp(playerFaction.power + 4, 0, 100);
-          playerFaction.resources = clamp(playerFaction.resources + 4, 0, 100);
-        }
-      }
-    }
+export function getGame(gameId: string): GameState | undefined {
+  return games.get(gameId);
+}
+
+export function saveGame(game: GameState): void {
+  game.indicators = computeIndicators(game.countries);
+  games.set(game.id, game);
+}
+
+export function countriesById(game: GameState): Map<string, CountryState> {
+  return new Map(game.countries.map((country) => [country.id, country]));
+}
+
+export function normalizeCountryId(input: string): string {
+  return normalizeCountryKey(input);
+}
+
+export function safeCountryName(game: GameState, countryId: string): string {
+  return game.countries.find((country) => country.id === countryId)?.name ?? countryId;
+}
+
+export function monthLabel(month: number): string {
+  const labels = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ];
+  return labels[clamp(month, 1, 12) - 1] ?? "January";
+}
+
+export function advanceCalendar(game: GameState): void {
+  let month = game.month + 1;
+  let year = game.year;
+  if (month > 12) {
+    month = 1;
+    year += 1;
   }
-
-  world.events.push(createInitialEvent(world));
-  const nationStartEvent = createNationStartEvent(world);
-  if (nationStartEvent) {
-    world.events.unshift(nationStartEvent);
-  }
-
-  worlds.set(id, world);
-  return world;
-}
-
-export function createDemoWorld(): World {
-  return createWorld({
-    name: "Genesis Earth 2010",
-    kind: "historical",
-    complexity: "medium",
-    mapSize: "medium",
-    role: "nation",
-    startCountry: "France"
-  });
-}
-
-export function getWorld(worldId: string): World | undefined {
-  return worlds.get(worldId);
-}
-
-export function saveWorld(world: World): void {
-  worlds.set(world.id, world);
+  game.month = month;
+  game.year = year;
 }

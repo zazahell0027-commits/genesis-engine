@@ -1,662 +1,304 @@
-import React, { useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
+import type { CountryDescriptor, GameEvent, GameState, JumpStep, ScenarioDescriptor } from "@genesis/shared";
 import {
-  HISTORICAL_START_COUNTRIES,
-  type CreateWorldInput,
-  type EventType,
-  type MapSize,
-  type PoliticalComplexity,
-  type RoleType,
-  type World,
-  type WorldCell
-} from "@genesis/shared";
-import {
-  createDemoWorld,
-  createWorld,
-  fetchWorld,
-  getWorldBriefing,
+  getAdvisor,
+  getCountries,
+  getGame,
+  getScenarios,
+  jumpForward,
   jumpToMajorEvent,
-  jumpWorld,
-  queuePlayerAction as queuePlayerActionRequest,
-  removeQueuedPlayerAction as removeQueuedPlayerActionRequest,
-  removeTurnCommand as removeTurnCommandRequest,
-  sendDiplomacyMessage,
-  submitTurnCommand as submitTurnCommandRequest,
-  triggerWorldEvent,
-  type JumpStep,
-  type WorldBriefing
+  queueOrder,
+  removeOrder,
+  sendDiplomacy,
+  startGame
 } from "./api";
-import rawWorldGeo from "./assets/world_countries_slim.json";
 import { WorldGeoMap } from "./components/WorldGeoMap";
 import "./styles.css";
 
-type ViewMode = "landing" | "world";
+type ViewMode = "setup" | "game";
+type MapLens = "bloc" | "tension" | "stability";
 
-type WorldSummary = {
-  avgRichness: number;
-  avgStability: number;
-  avgTension: number;
-  highTensionCount: number;
-};
-
-type CreateFormState = {
-  name: string;
-  kind: "historical" | "fictional";
-  complexity: PoliticalComplexity;
-  role: RoleType;
-  mapSize: MapSize;
-  startCountry: string;
-};
-
-type ContinentOverview = {
-  name: string;
-  cells: number;
-  avgTension: number;
-};
-
-type MapLens = "control" | "tension" | "stability";
-
-type TerritorySnapshot = {
-  cellId: string;
-  richness: number;
-  stability: number;
-  tension: number;
-  owner: string;
-  tick: number;
-};
-
-type TerritoryImpact = {
-  source: "tick" | "action";
-  actionLabel: string;
-  before: TerritorySnapshot;
-  after: TerritorySnapshot;
-};
-
-type DiplomacyExchange = {
-  id: string;
-  targetCountry: string;
-  message: string;
-  reply: string;
-  stance: "friendly" | "neutral" | "hostile";
-  tick: number;
-  year: number;
-};
-
-const ownerPalette = ["#1D4ED8", "#BE123C", "#047857", "#7C3AED", "#C2410C", "#0F766E"];
-
-type GeoFeatureSource = {
-  type: "Feature";
-  properties?: {
-    name?: string;
-  };
-};
-
-type GeoFeatureCollection = {
-  type: "FeatureCollection";
-  features?: GeoFeatureSource[];
-};
-
-function normalizeSearch(value: string): string {
+function normalize(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
-const geoData = rawWorldGeo as GeoFeatureCollection;
-
-const allStartCountries = (() => {
-  const fromGeo = (geoData.features ?? [])
-    .map((feature) => String(feature.properties?.name ?? "").trim())
-    .filter((name) => name.length > 0 && name !== "Fr. S. Antarctic Lands");
-
-  const unique = new Set<string>([...HISTORICAL_START_COUNTRIES, ...fromGeo]);
-  return [...unique].sort((a, b) => a.localeCompare(b));
-})();
-
-function getRiskLabel(cell: WorldCell): string {
-  if (cell.tension > 65) return "Conflit";
-  if (cell.stability < 40) return "Fragile";
-  return "Calme";
+function eventBadge(type: GameEvent["type"]): string {
+  if (type.startsWith("major_")) return "major";
+  if (type === "diplomacy") return "diplomacy";
+  if (type === "order") return "order";
+  return "system";
 }
 
-function summarizeWorld(world: World): WorldSummary {
-  const count = Math.max(1, world.cells.length);
-  const richness = world.cells.reduce((sum, cell) => sum + cell.richness, 0);
-  const stability = world.cells.reduce((sum, cell) => sum + cell.stability, 0);
-  const tension = world.cells.reduce((sum, cell) => sum + cell.tension, 0);
-  const highTensionCount = world.cells.filter((cell) => cell.tension > 65).length;
-
-  return {
-    avgRichness: Math.round(richness / count),
-    avgStability: Math.round(stability / count),
-    avgTension: Math.round(tension / count),
-    highTensionCount
-  };
+function eventLabel(type: GameEvent["type"]): string {
+  if (type === "major_diplomacy") return "Major Diplomacy";
+  if (type === "major_crisis") return "Major Crisis";
+  if (type === "major_conflict") return "Major Conflict";
+  if (type === "major_growth") return "Major Growth";
+  if (type === "diplomacy") return "Diplomacy";
+  if (type === "order") return "Order";
+  return "System";
 }
 
-function conflictLabel(summary: WorldSummary): string {
-  if (summary.avgTension > 62 || summary.highTensionCount > 16) return "Eleve";
-  if (summary.avgTension > 48 || summary.highTensionCount > 8) return "Moyen";
-  return "Faible";
-}
-
-function factionName(world: World | null, ownerId: string): string {
-  if (!world) return ownerId;
-  return world.factions.find((faction) => faction.id === ownerId)?.name ?? ownerId;
-}
-
-function eventTypeLabel(type: EventType): string {
-  if (type === "troubles") return "Troubles";
-  if (type === "alliance") return "Alliance";
-  if (type === "expansion") return "Expansion";
-  if (type === "crisis_local") return "Crise";
-  return "Decouverte";
-}
-
-function playerActionLabel(action: "stabilize" | "invest" | "influence" | "disrupt" | "incite"): string {
-  if (action === "stabilize") return "Stabiliser";
-  if (action === "invest") return "Investir";
-  if (action === "influence") return "Influencer";
-  if (action === "incite") return "Perturber";
-  return "Perturber";
-}
-
-function getOwnerColor(world: World, ownerId: string): string {
-  const ownerIndex = world.factions.findIndex((faction) => faction.id === ownerId);
-  return ownerPalette[(ownerIndex + ownerPalette.length) % ownerPalette.length] ?? "#334155";
-}
-
-function yearAtEvent(world: World, eventTick: number): number {
-  return world.year - (world.tick - eventTick);
-}
-
-function average(values: number[]): number {
-  if (values.length === 0) return 0;
-  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
-}
+const jumpSteps: Array<{ value: JumpStep; label: string }> = [
+  { value: "week", label: "1 week" },
+  { value: "month", label: "1 month" },
+  { value: "quarter", label: "1 quarter" },
+  { value: "year", label: "1 year" }
+];
 
 export default function App(): React.JSX.Element {
-  const [viewMode, setViewMode] = useState<ViewMode>("landing");
-  const [world, setWorld] = useState<World | null>(null);
-  const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
-  const [showJson, setShowJson] = useState(false);
-  const [briefing, setBriefing] = useState<WorldBriefing | null>(null);
-  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("setup");
+  const [scenarios, setScenarios] = useState<ScenarioDescriptor[]>([]);
+  const [countries, setCountries] = useState<CountryDescriptor[]>([]);
+  const [scenarioId, setScenarioId] = useState("earth-2010");
+  const [countrySearch, setCountrySearch] = useState("");
+  const [countryId, setCountryId] = useState("france");
+  const [game, setGame] = useState<GameState | null>(null);
+  const [selectedCountryId, setSelectedCountryId] = useState<string | null>(null);
+  const [mapLens, setMapLens] = useState<MapLens>("bloc");
+  const [jumpStep, setJumpStep] = useState<JumpStep>("month");
+  const [orderText, setOrderText] = useState("");
+  const [diplomacyTargetId, setDiplomacyTargetId] = useState("");
+  const [diplomacyText, setDiplomacyText] = useState("");
+  const [advisorText, setAdvisorText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastImpact, setLastImpact] = useState<TerritoryImpact | null>(null);
-  const [mapLens, setMapLens] = useState<MapLens>("control");
-  const [commandText, setCommandText] = useState("");
-  const [jumpStep, setJumpStep] = useState<JumpStep>("month");
-  const [diplomacyTarget, setDiplomacyTarget] = useState("");
-  const [diplomacyText, setDiplomacyText] = useState("");
-  const [diplomacyLog, setDiplomacyLog] = useState<DiplomacyExchange[]>([]);
-  const [countrySearch, setCountrySearch] = useState("");
-  const [form, setForm] = useState<CreateFormState>({
-    name: "Genesis Earth 2010",
-    kind: "historical",
-    complexity: "medium",
-    role: "nation",
-    mapSize: "medium",
-    startCountry: "France"
-  });
 
-  const filteredStartCountries = useMemo(() => {
-    const query = normalizeSearch(countrySearch.trim());
-    const list = !query
-      ? allStartCountries
-      : allStartCountries.filter((country) => normalizeSearch(country).includes(query));
-
-    if (!list.includes(form.startCountry)) {
-      return [form.startCountry, ...list];
+  useEffect(() => {
+    async function bootstrap(): Promise<void> {
+      setLoading(true);
+      setError(null);
+      try {
+        const loadedScenarios = await getScenarios();
+        setScenarios(loadedScenarios);
+        const activeScenarioId = loadedScenarios[0]?.id ?? "earth-2010";
+        setScenarioId(activeScenarioId);
+        const loadedCountries = await getCountries(activeScenarioId);
+        setCountries(loadedCountries);
+        setCountryId(loadedCountries[0]?.id ?? "france");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to load setup data");
+      } finally {
+        setLoading(false);
+      }
     }
 
-    return list;
-  }, [countrySearch, form.startCountry]);
+    void bootstrap();
+  }, []);
 
-  const diplomacyCountries = useMemo(() => {
-    if (!world) return [] as string[];
-    const unique = new Set(world.cells.map((cell) => cell.country));
-    return [...unique].sort((a, b) => a.localeCompare(b));
-  }, [world]);
-
-  const effectiveDiplomacyTarget = useMemo(() => {
-    if (!world) return "";
-    if (diplomacyTarget && diplomacyCountries.includes(diplomacyTarget)) {
-      return diplomacyTarget;
-    }
-    if (world.playerCountry && diplomacyCountries.includes(world.playerCountry)) {
-      return world.playerCountry;
-    }
-    return diplomacyCountries[0] ?? "";
-  }, [diplomacyCountries, diplomacyTarget, world]);
-
-  const selectedCell = useMemo(() => {
-    if (!world || !selectedCellId) return null;
-    return world.cells.find((cell) => cell.id === selectedCellId) ?? null;
-  }, [selectedCellId, world]);
-
-  const canActOnSelectedTerritory = useMemo(() => {
-    if (!world || !selectedCell) return false;
-    if (!world.countryLocked || world.role !== "nation" || !world.playerFactionId) return true;
-    return selectedCell.owner === world.playerFactionId;
-  }, [selectedCell, world]);
-
-  const canQueueMoreActions = useMemo(() => {
-    if (!world) return false;
-    return world.queuedActions.length < world.maxActionPoints && world.actionPoints > 0;
-  }, [world]);
-
-  const worldSummary = useMemo(() => {
-    if (!world) return null;
-    return summarizeWorld(world);
-  }, [world]);
-
-  const continentOverview = useMemo(() => {
-    if (!world) return [] as ContinentOverview[];
-
-    const map = new Map<string, WorldCell[]>();
-    for (const cell of world.cells) {
-      const list = map.get(cell.continent) ?? [];
-      list.push(cell);
-      map.set(cell.continent, list);
+  useEffect(() => {
+    async function refreshCountries(): Promise<void> {
+      if (!scenarioId) return;
+      try {
+        const loadedCountries = await getCountries(scenarioId);
+        setCountries(loadedCountries);
+        if (!loadedCountries.some((country) => country.id === countryId)) {
+          setCountryId(loadedCountries[0]?.id ?? "france");
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to load countries");
+      }
     }
 
-    return [...map.entries()]
-      .map(([name, cells]) => ({
-        name,
-        cells: cells.length,
-        avgTension: average(cells.map((cell) => cell.tension))
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [world]);
+    void refreshCountries();
+  }, [scenarioId]);
 
-  const localEvents = useMemo(() => {
-    if (!world || !selectedCell) return [];
+  useEffect(() => {
+    if (!game) return;
 
-    return world.events
-      .filter((event) => event.targetCellId === selectedCell.id || event.factionId === selectedCell.owner)
-      .slice(0, 5);
-  }, [selectedCell, world]);
-
-  function snapshotCell(currentWorld: World, cellId: string): TerritorySnapshot | null {
-    const cell = currentWorld.cells.find((item) => item.id === cellId);
-    if (!cell) return null;
-
-    return {
-      cellId: cell.id,
-      richness: cell.richness,
-      stability: cell.stability,
-      tension: cell.tension,
-      owner: cell.owner,
-      tick: currentWorld.tick
-    };
-  }
-
-  async function refreshBriefing(worldId: string): Promise<void> {
-    setBriefingLoading(true);
-    try {
-      const result = await getWorldBriefing(worldId);
-      setBriefing(result);
-    } catch {
-      setBriefing(null);
-    } finally {
-      setBriefingLoading(false);
+    if (!selectedCountryId || !game.countries.some((country) => country.id === selectedCountryId)) {
+      setSelectedCountryId(game.playerCountryId);
     }
-  }
 
-  async function hydrateWorld(created: World): Promise<void> {
-    setWorld(created);
-    setSelectedCellId(created.startCellId ?? created.cells[0]?.id ?? null);
-    setDiplomacyTarget(created.playerCountry ?? created.cells[0]?.country ?? "");
-    setDiplomacyText("");
-    setDiplomacyLog([]);
-    setViewMode("world");
-    setShowJson(false);
-    await refreshBriefing(created.id);
-  }
+    if (!diplomacyTargetId || !game.countries.some((country) => country.id === diplomacyTargetId)) {
+      const fallback = game.countries.find((country) => country.id !== game.playerCountryId)?.id ?? game.playerCountryId;
+      setDiplomacyTargetId(fallback);
+    }
+  }, [game, diplomacyTargetId, selectedCountryId]);
 
-  function handleHistoricalCountrySelection(country: string): void {
-    setForm((prev) => ({ ...prev, startCountry: country }));
-  }
+  const filteredCountries = useMemo(() => {
+    const query = normalize(countrySearch);
+    if (!query) return countries;
+    return countries.filter((country) => normalize(country.name).includes(query));
+  }, [countries, countrySearch]);
 
-  async function handleCreate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault();
+  const selectedCountry = useMemo(() => {
+    if (!game || !selectedCountryId) return null;
+    return game.countries.find((country) => country.id === selectedCountryId) ?? null;
+  }, [game, selectedCountryId]);
+
+  async function handleStartGame(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
     setLoading(true);
     setError(null);
+
     try {
-      const input: CreateWorldInput = {
-        name: form.name,
-        kind: form.kind,
-        complexity: form.complexity,
-        role: form.role,
-        mapSize: form.mapSize,
-        startCountry: form.kind === "historical" ? form.startCountry : undefined
-      };
-      const created = await createWorld(input);
-      await hydrateWorld(created);
+      const created = await startGame(scenarioId as "earth-2010", countryId);
+      setGame(created);
+      setSelectedCountryId(created.playerCountryId);
+      setViewMode("game");
+      setAdvisorText("");
+      setOrderText("");
+      setDiplomacyText("");
+      const fallback = created.countries.find((country) => country.id !== created.playerCountryId)?.id ?? created.playerCountryId;
+      setDiplomacyTargetId(fallback);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Unable to start game");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleLoadDemo(): Promise<void> {
+  async function refreshGame(gameId: string): Promise<void> {
+    const updated = await getGame(gameId);
+    setGame(updated);
+  }
+
+  async function handleQueueOrder(): Promise<void> {
+    if (!game) return;
+    const text = orderText.trim();
+    if (!text) return;
+
     setLoading(true);
     setError(null);
     try {
-      const created = await createDemoWorld();
-      await hydrateWorld(created);
+      const updated = await queueOrder(game.id, text);
+      setGame(updated);
+      setOrderText("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Unable to queue order");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRemoveOrder(orderId: string): Promise<void> {
+    if (!game) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const updated = await removeOrder(game.id, orderId);
+      setGame(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove order");
     } finally {
       setLoading(false);
     }
   }
 
   async function handleJumpForward(): Promise<void> {
-    if (!world) return;
+    if (!game) return;
 
     setLoading(true);
     setError(null);
     try {
-      const beforeImpact = selectedCellId ? snapshotCell(world, selectedCellId) : null;
-      const updated = await jumpWorld(world.id, jumpStep);
-      setWorld(updated);
-      setBriefing((prev) => (prev ? { ...prev, tick: updated.tick } : null));
-      await refreshBriefing(updated.id);
-      if (beforeImpact) {
-        const afterImpact = snapshotCell(updated, beforeImpact.cellId);
-        if (afterImpact) {
-          setLastImpact({
-            source: "tick",
-            actionLabel: `Saut ${jumpStep}`,
-            before: beforeImpact,
-            after: afterImpact
-          });
-        }
-      }
-      if (selectedCellId && !updated.cells.some((cell) => cell.id === selectedCellId)) {
-        setSelectedCellId(updated.startCellId ?? updated.cells[0]?.id ?? null);
-      }
+      const updated = await jumpForward(game.id, jumpStep);
+      setGame(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Unable to jump forward");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleJumpToMajorEvent(): Promise<void> {
-    if (!world) return;
+  async function handleMajorEventJump(): Promise<void> {
+    if (!game) return;
 
     setLoading(true);
     setError(null);
     try {
-      const beforeImpact = selectedCellId ? snapshotCell(world, selectedCellId) : null;
-      const updated = await jumpToMajorEvent(world.id);
-      setWorld(updated);
-      await refreshBriefing(updated.id);
-      if (beforeImpact) {
-        const afterImpact = snapshotCell(updated, beforeImpact.cellId);
-        if (afterImpact) {
-          setLastImpact({
-            source: "tick",
-            actionLabel: "Next major event",
-            before: beforeImpact,
-            after: afterImpact
-          });
-        }
-      }
-      if (selectedCellId && !updated.cells.some((cell) => cell.id === selectedCellId)) {
-        setSelectedCellId(updated.startCellId ?? updated.cells[0]?.id ?? null);
-      }
+      const updated = await jumpToMajorEvent(game.id);
+      setGame(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Unable to jump to major event");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleTriggerEvent(): Promise<void> {
-    if (!world) return;
+  async function handleSendDiplomacy(): Promise<void> {
+    if (!game) return;
+    const message = diplomacyText.trim();
+    if (!message || !diplomacyTargetId) return;
 
     setLoading(true);
     setError(null);
     try {
-      const updated = await triggerWorldEvent(world.id);
-      setWorld(updated);
-      await refreshBriefing(updated.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleQueueAction(action: "stabilize" | "invest" | "influence" | "disrupt"): Promise<void> {
-    if (!world || !selectedCell) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const updated = await queuePlayerActionRequest(world.id, selectedCell.id, action);
-      setWorld(updated);
-      setLastImpact(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleRemoveQueuedAction(queuedActionId: string): Promise<void> {
-    if (!world) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const updated = await removeQueuedPlayerActionRequest(world.id, queuedActionId);
-      setWorld(updated);
-      setLastImpact(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSubmitCommand(): Promise<void> {
-    if (!world) return;
-    const text = commandText.trim();
-    if (!text) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const updated = await submitTurnCommandRequest(world.id, text);
-      setWorld(updated);
-      setCommandText("");
-      setLastImpact(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleRemoveCommand(commandId: string): Promise<void> {
-    if (!world) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const updated = await removeTurnCommandRequest(world.id, commandId);
-      setWorld(updated);
-      setLastImpact(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSendDiplomacyMessage(): Promise<void> {
-    if (!world) return;
-    const text = diplomacyText.trim();
-    const target = effectiveDiplomacyTarget;
-    if (!text || !target) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await sendDiplomacyMessage(world.id, target, text);
-      setDiplomacyLog((prev) => [
-        {
-          id: `${world.id}-${Date.now()}`,
-          targetCountry: response.targetCountry,
-          message: text,
-          reply: response.reply,
-          stance: response.stance,
-          tick: response.tick,
-          year: response.year
-        },
-        ...prev
-      ].slice(0, 12));
+      await sendDiplomacy(game.id, diplomacyTargetId, message);
+      await refreshGame(game.id);
       setDiplomacyText("");
-      const updated = await fetchWorld(world.id);
-      setWorld(updated);
-      await refreshBriefing(updated.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "Unable to send diplomacy message");
     } finally {
       setLoading(false);
     }
   }
 
-  if (viewMode === "landing") {
+  async function handleAdvisor(): Promise<void> {
+    if (!game) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await getAdvisor(game.id);
+      setAdvisorText(response.narrative);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to get advisor output");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (viewMode === "setup") {
     return (
       <main className="container">
         <section className="hero">
           <h1>Genesis Engine</h1>
-          <p>
-            Moteur de simulation sandbox: mondes vivants, factions dynamiques et evenements emergents.
-          </p>
-          {error && <p className="error">Erreur: {error}</p>}
+          <p>Fresh rebuild: scenario to country to text orders to jump to consequences.</p>
+          {error && <p className="error">Error: {error}</p>}
 
-          <form className="world-form" onSubmit={handleCreate}>
+          <form className="setup-form" onSubmit={handleStartGame}>
             <label>
-              Nom du monde
+              Scenario
+              <select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>
+                {scenarios.map((scenario) => (
+                  <option key={scenario.id} value={scenario.id}>
+                    {scenario.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Search country
               <input
-                type="text"
-                value={form.name}
-                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                required
+                type="search"
+                placeholder="France, Luxembourg, Liechtenstein..."
+                value={countrySearch}
+                onChange={(event) => setCountrySearch(event.target.value)}
               />
             </label>
 
-            <label>
-              Type de monde
-              <select
-                value={form.kind}
-                onChange={(event) => setForm((prev) => ({ ...prev, kind: event.target.value as CreateFormState["kind"] }))}
-              >
-                <option value="historical">Historique</option>
-                <option value="fictional">Fictif</option>
-              </select>
-            </label>
-
-            {form.kind === "historical" && (
-              <div className="country-picker">
-                <label>
-                  Recherche pays
-                  <input
-                    type="search"
-                    placeholder="Ex: France, Liechtenstein, Tuvalu..."
-                    value={countrySearch}
-                    onChange={(event) => setCountrySearch(event.target.value)}
-                  />
-                </label>
-
-                <div className="country-quick-picks">
-                  {HISTORICAL_START_COUNTRIES.map((country) => (
-                    <button
-                      key={country}
-                      type="button"
-                      className={form.startCountry === country ? "active" : ""}
-                      onClick={() => handleHistoricalCountrySelection(country)}
-                    >
-                      {country}
-                    </button>
-                  ))}
-                </div>
-
-                <label>
-                  Pays de depart ({filteredStartCountries.length} resultats)
-                  <select
-                    size={10}
-                    value={form.startCountry}
-                    onChange={(event) => handleHistoricalCountrySelection(event.target.value)}
-                  >
-                    {filteredStartCountries.map((country) => (
-                      <option key={country} value={country}>{country}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Ou saisir manuellement
-                  <input
-                    type="text"
-                    value={form.startCountry}
-                    onChange={(event) => handleHistoricalCountrySelection(event.target.value)}
-                  />
-                </label>
-
-                <p className="country-picked">
-                  Pays selectionne: <strong>{form.startCountry}</strong>
-                </p>
-              </div>
-            )}
-
-            <label>
-              Complexite politique
-              <select
-                value={form.complexity}
-                onChange={(event) => setForm((prev) => ({ ...prev, complexity: event.target.value as PoliticalComplexity }))}
-              >
-                <option value="low">Faible</option>
-                <option value="medium">Moyen</option>
-                <option value="high">Eleve</option>
-              </select>
-            </label>
-
-            <label>
-              Role de depart
-              <select
-                value={form.role}
-                onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value as RoleType }))}
-              >
-                <option value="hero">Hero</option>
-                <option value="faction">Faction</option>
-                <option value="nation">Nation</option>
-                <option value="gm">MJ</option>
-              </select>
-            </label>
-
-            <label>
-              Taille de la carte
-              <select
-                value={form.mapSize}
-                onChange={(event) => setForm((prev) => ({ ...prev, mapSize: event.target.value as MapSize }))}
-              >
-                <option value="small">Petite</option>
-                <option value="medium">Moyenne</option>
-                <option value="large">Grande</option>
+            <label className="country-picker">
+              Play as ({filteredCountries.length} countries)
+              <select size={12} value={countryId} onChange={(event) => setCountryId(event.target.value)}>
+                {filteredCountries.map((country) => (
+                  <option key={country.id} value={country.id}>
+                    {country.name} ({country.continent})
+                  </option>
+                ))}
               </select>
             </label>
 
             <div className="actions">
-              <button type="submit" disabled={loading}>Creer un monde</button>
-              <button type="button" onClick={handleLoadDemo} disabled={loading}>Charger une demo</button>
+              <button type="submit" disabled={loading || !countryId}>Start game</button>
             </div>
           </form>
         </section>
@@ -668,403 +310,183 @@ export default function App(): React.JSX.Element {
     <main className="container">
       <header className="world-header">
         <div>
-          <h1>{world?.name}</h1>
+          <h1>{game?.scenarioName}</h1>
           <p>
-            Annee {world?.year} | Tick {world?.tick} | {world?.kind === "historical" ? "Historique" : "Fictif"} | role {world?.role} | scenario {world?.scenarioId}
+            Date: {game?.month}/{game?.year} | Tick {game?.tick} | Player: {game?.playerCountryName}
           </p>
-          {world?.playerCountry && (
-            <p className="player-country-line">
-              Pays joue: <strong>{world.playerCountry}</strong>
-              {world.playerFactionId ? ` | Bloc: ${factionName(world, world.playerFactionId)}` : ""}
-              {world.countryLocked ? " | verrouille pour cette partie" : ""}
-            </p>
-          )}
         </div>
         <div className="actions">
           <label className="jump-control">
-            Saut
-            <select
-              value={jumpStep}
-              onChange={(event) => setJumpStep(event.target.value as JumpStep)}
-              disabled={loading || !world}
-            >
-              <option value="week">1 semaine</option>
-              <option value="month">1 mois</option>
-              <option value="quarter">1 trimestre</option>
-              <option value="year">1 an</option>
+            Jump
+            <select value={jumpStep} onChange={(event) => setJumpStep(event.target.value as JumpStep)}>
+              {jumpSteps.map((step) => (
+                <option key={step.value} value={step.value}>{step.label}</option>
+              ))}
             </select>
           </label>
-          <button type="button" onClick={handleJumpForward} disabled={loading || !world}>Jump Forward</button>
-          <button type="button" onClick={handleJumpToMajorEvent} disabled={loading || !world}>Next Major Event</button>
-          <button type="button" onClick={handleTriggerEvent} disabled={loading || !world}>Declencher un evenement</button>
-          <button
-            type="button"
-            onClick={() => world && refreshBriefing(world.id)}
-            disabled={!world || loading || briefingLoading}
-          >
-            {briefingLoading ? "Narration..." : "Narration IA locale"}
-          </button>
-          <button type="button" onClick={() => setShowJson((prev) => !prev)} disabled={!world}>
-            {showJson ? "Masquer JSON" : "Afficher JSON"}
-          </button>
-          <button type="button" onClick={() => setViewMode("landing")}>Retour accueil</button>
+          <button type="button" onClick={handleJumpForward} disabled={loading}>Jump Forward</button>
+          <button type="button" onClick={handleMajorEventJump} disabled={loading}>Next Major Event</button>
+          <button type="button" onClick={handleAdvisor} disabled={loading}>Advisor</button>
+          <button type="button" onClick={() => setViewMode("setup")}>Back</button>
         </div>
       </header>
 
-      {world && (
-        <p className="action-points">
-          Ordres restants: {world.actionPoints}/{world.maxActionPoints} (maximum 3 ordres par tour en mode nation)
-        </p>
-      )}
+      {error && <p className="error">Error: {error}</p>}
 
-      {error && <p className="error">Erreur: {error}</p>}
-
-      {world && worldSummary && (
+      {game && (
         <section className="metrics-grid">
           <article>
-            <h3>Stabilite globale</h3>
-            <p>{worldSummary.avgStability}</p>
+            <h3>Stability</h3>
+            <p>{game.indicators.avgStability}</p>
           </article>
           <article>
-            <h3>Richesse moyenne</h3>
-            <p>{worldSummary.avgRichness}</p>
+            <h3>Wealth</h3>
+            <p>{game.indicators.avgWealth}</p>
           </article>
           <article>
-            <h3>Niveau de conflit</h3>
-            <p>{conflictLabel(worldSummary)}</p>
+            <h3>Tension</h3>
+            <p>{game.indicators.avgTension}</p>
           </article>
           <article>
-            <h3>Factions</h3>
-            <p>{world.factions.length}</p>
+            <h3>Conflict</h3>
+            <p>{game.indicators.conflictLevel}</p>
           </article>
           <article>
-            <h3>Ordres restants</h3>
-            <p>{world.actionPoints}/{world.maxActionPoints}</p>
+            <h3>Action points</h3>
+            <p>{game.actionPoints}/{game.maxActionPoints}</p>
           </article>
         </section>
       )}
 
-      {world && (
+      {game && (
         <section className="world-layout">
-          <div className="map-section">
-            <h2>Carte Strategique 2D</h2>
-            <p className="map-subtitle">
-              Projection mondiale pays-reels: couleur = controle/tension/stabilite selon la vue active. Clique un pays pour agir.
-            </p>
+          <section className="map-section">
+            <h2>Strategic World Map</h2>
+            <p className="map-subtitle">Text orders are the primary control. The map is your situational reading surface.</p>
             <div className="lens-controls">
-              <button
-                type="button"
-                className={mapLens === "control" ? "active" : ""}
-                onClick={() => setMapLens("control")}
-              >
-                Vue controle
-              </button>
-              <button
-                type="button"
-                className={mapLens === "tension" ? "active" : ""}
-                onClick={() => setMapLens("tension")}
-              >
-                Vue tensions
-              </button>
-              <button
-                type="button"
-                className={mapLens === "stability" ? "active" : ""}
-                onClick={() => setMapLens("stability")}
-              >
-                Vue stabilite
-              </button>
+              <button type="button" className={mapLens === "bloc" ? "active" : ""} onClick={() => setMapLens("bloc")}>Bloc view</button>
+              <button type="button" className={mapLens === "tension" ? "active" : ""} onClick={() => setMapLens("tension")}>Tension view</button>
+              <button type="button" className={mapLens === "stability" ? "active" : ""} onClick={() => setMapLens("stability")}>Stability view</button>
             </div>
-
-            <div className="legend">
-              <span className="legend-item stable">Calme</span>
-              <span className="legend-item warning">Fragile</span>
-              <span className="legend-item danger">Conflit</span>
-            </div>
-
             <WorldGeoMap
-              world={world}
-              mapLens={mapLens}
-              selectedCellId={selectedCellId}
-              onSelectCell={setSelectedCellId}
-              getOwnerColor={(ownerId) => getOwnerColor(world, ownerId)}
+              game={game}
+              lens={mapLens}
+              selectedCountryId={selectedCountryId}
+              onSelectCountry={setSelectedCountryId}
             />
-          </div>
+          </section>
 
           <aside className="details-panel">
-            <h3>Commandes nationales</h3>
+            <h3>Selected country</h3>
+            {selectedCountry ? (
+              <div className="details-block">
+                <p><strong>{selectedCountry.name}</strong></p>
+                <p>Continent: {selectedCountry.continent}</p>
+                <p>Bloc: {selectedCountry.bloc}</p>
+                <p>Wealth: {selectedCountry.wealth}</p>
+                <p>Stability: {selectedCountry.stability}</p>
+                <p>Tension: {selectedCountry.tension}</p>
+                <p>Relation to player: {selectedCountry.relationToPlayer}</p>
+              </div>
+            ) : (
+              <p>Select a country on the map.</p>
+            )}
+
+            <h3>Text orders</h3>
             <div className="details-block command-panel">
-              <p className="command-helper">
-                Ecris une decision politique (ex: "Investir en France", "Stabiliser les zones tendues", "Influencer le voisinage").
-              </p>
+              <p className="help-text">Write a concrete order. Example: "Invest in Poland and secure infrastructure".</p>
               <textarea
-                value={commandText}
-                onChange={(event) => setCommandText(event.target.value)}
-                placeholder="Soumettre une action strategique pour ce tour..."
+                value={orderText}
+                onChange={(event) => setOrderText(event.target.value)}
                 rows={3}
-                disabled={loading || !world || !canQueueMoreActions}
+                placeholder="Type your strategic order..."
+                disabled={loading}
               />
               <div className="actions command-actions">
-                <button
-                  type="button"
-                  onClick={handleSubmitCommand}
-                  disabled={loading || !world || !canQueueMoreActions || commandText.trim().length === 0}
-                >
-                  Soumettre commande
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCommandText("Stabiliser les zones les plus tendues")}
-                  disabled={loading || !canQueueMoreActions}
-                >
-                  Suggestion rapide
-                </button>
+                <button type="button" onClick={handleQueueOrder} disabled={loading || orderText.trim().length === 0}>Queue order</button>
+                <button type="button" onClick={() => setOrderText("Stabilize internal security and reduce unrest in border regions")}>Quick fill</button>
               </div>
-              {world.submittedCommands.length > 0 && (
-                <div className="command-list">
-                  {world.submittedCommands.slice(-5).reverse().map((command) => (
-                    <div key={command.id} className="command-row">
-                      <div>
-                        <p><strong>{command.text}</strong></p>
-                        <p className="command-meta">{command.rationale}</p>
-                        <p className={`command-status status-${command.status}`}>Statut: {command.status}</p>
-                      </div>
-                      {command.status === "queued" && (
-                        <button type="button" onClick={() => handleRemoveCommand(command.id)} disabled={loading}>
-                          Retirer
-                        </button>
-                      )}
-                    </div>
+              {game.queuedOrders.length > 0 ? (
+                <div className="list-stack">
+                  {game.queuedOrders.map((order) => (
+                    <article key={order.id} className="row-item">
+                      <p><strong>{order.kind.toUpperCase()}</strong> {"->"} {order.targetCountryId}</p>
+                      <p>{order.text}</p>
+                      <button type="button" onClick={() => handleRemoveOrder(order.id)} disabled={loading}>Remove</button>
+                    </article>
                   ))}
                 </div>
+              ) : (
+                <p className="help-text">No order queued for this round.</p>
               )}
             </div>
 
-            <h3>Diplomatie texte</h3>
-            <div className="details-block diplomacy-panel">
+            <h3>Diplomacy</h3>
+            <div className="details-block command-panel">
               <label>
-                Pays cible
-                <select
-                  value={effectiveDiplomacyTarget}
-                  onChange={(event) => setDiplomacyTarget(event.target.value)}
-                  disabled={loading || diplomacyCountries.length === 0}
-                >
-                  {diplomacyCountries.map((country) => (
-                    <option key={country} value={country}>{country}</option>
-                  ))}
+                Target country
+                <select value={diplomacyTargetId} onChange={(event) => setDiplomacyTargetId(event.target.value)}>
+                  {game.countries
+                    .filter((country) => country.id !== game.playerCountryId)
+                    .map((country) => (
+                      <option key={country.id} value={country.id}>{country.name}</option>
+                    ))}
                 </select>
               </label>
               <textarea
                 value={diplomacyText}
                 onChange={(event) => setDiplomacyText(event.target.value)}
-                placeholder="Ex: Proposer un pacte de non-agression et un corridor commercial sur 6 mois."
                 rows={3}
-                disabled={loading || !effectiveDiplomacyTarget}
+                placeholder="Send a diplomatic message..."
+                disabled={loading}
               />
               <div className="actions command-actions">
-                <button
-                  type="button"
-                  onClick={handleSendDiplomacyMessage}
-                  disabled={loading || diplomacyText.trim().length === 0 || !effectiveDiplomacyTarget}
-                >
-                  Envoyer message diplomatique
-                </button>
+                <button type="button" onClick={handleSendDiplomacy} disabled={loading || diplomacyText.trim().length === 0}>Send diplomacy</button>
               </div>
-              {diplomacyLog.length > 0 && (
-                <div className="diplomacy-log">
-                  {diplomacyLog.map((entry) => (
-                    <article key={entry.id} className="diplomacy-item">
-                      <strong>
-                        {entry.targetCountry} | {entry.stance} | annee {entry.year} tick {entry.tick}
-                      </strong>
-                      <p>Vous: {entry.message}</p>
-                      <p>Reponse: {entry.reply}</p>
+              {game.diplomacyLog.length > 0 && (
+                <div className="list-stack">
+                  {game.diplomacyLog.slice(0, 4).map((entry) => (
+                    <article key={entry.id} className="row-item">
+                      <p><strong>{entry.targetCountryName}</strong> | {entry.stance}</p>
+                      <p>You: {entry.message}</p>
+                      <p>Reply: {entry.reply}</p>
                     </article>
                   ))}
                 </div>
               )}
             </div>
 
-            <h3>Territoire selectionne</h3>
-            {selectedCell ? (
-              <div className="details-block">
-                <p>Coordonnees: ({selectedCell.x}, {selectedCell.y})</p>
-                <p>Pays: {selectedCell.country}</p>
-                <p>Continent: {selectedCell.continent}</p>
-                <p>Faction: {factionName(world, selectedCell.owner)}</p>
-                <p>Risque: {getRiskLabel(selectedCell)}</p>
-                <p>Richesse: {selectedCell.richness}</p>
-                <p>Stabilite: {selectedCell.stability}</p>
-                <p>Tensions: {selectedCell.tension}</p>
-                <div className="actions territory-actions">
-                  <button
-                    type="button"
-                    onClick={() => handleQueueAction("stabilize")}
-                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
-                  >
-                    Stabiliser
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQueueAction("invest")}
-                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
-                  >
-                    Investir
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQueueAction("influence")}
-                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
-                  >
-                    Influencer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQueueAction("disrupt")}
-                    disabled={loading || !canQueueMoreActions || !canActOnSelectedTerritory}
-                  >
-                    Perturber
-                  </button>
-                </div>
-                {!canActOnSelectedTerritory && world.countryLocked && world.playerCountry && (
-                  <p className="action-warning">
-                    Action bloquee: ce territoire n'est pas controle par {world.playerCountry}.
-                  </p>
-                )}
-                {!canQueueMoreActions && (
-                  <p className="action-warning">
-                    File d'ordres pleine. Resous le tour pour appliquer les actions.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p>Selectionne une zone de la carte.</p>
-            )}
-
-            {selectedCell && lastImpact && lastImpact.after.cellId === selectedCell.id && (
-              <div className="details-block impact-block">
-                <p><strong>Impact recent: {lastImpact.actionLabel}</strong></p>
-                <p className={lastImpact.after.richness - lastImpact.before.richness >= 0 ? "delta up" : "delta down"}>
-                  Richesse: {lastImpact.before.richness} {"->"} {lastImpact.after.richness}
-                </p>
-                <p className={lastImpact.after.stability - lastImpact.before.stability >= 0 ? "delta up" : "delta down"}>
-                  Stabilite: {lastImpact.before.stability} {"->"} {lastImpact.after.stability}
-                </p>
-                <p className={lastImpact.after.tension - lastImpact.before.tension <= 0 ? "delta up" : "delta down"}>
-                  Tensions: {lastImpact.before.tension} {"->"} {lastImpact.after.tension}
-                </p>
-                {lastImpact.before.owner !== lastImpact.after.owner && (
-                  <p className="delta down">
-                    Controle: {factionName(world, lastImpact.before.owner)} {"->"} {factionName(world, lastImpact.after.owner)}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <h3>Ordres du tour</h3>
-            <div className="details-block queue-block">
-              {world.queuedActions.length === 0 ? (
-                <p>Aucun ordre soumis pour ce tour.</p>
-              ) : (
-                world.queuedActions.map((queued) => {
-                  const target = world.cells.find((cell) => cell.id === queued.cellId);
-                  return (
-                    <div key={queued.id} className="queued-row">
-                      <p>
-                        {playerActionLabel(queued.action)} {"->"}{" "}
-                        {target ? `${target.country} (${target.x}, ${target.y})` : queued.cellId}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveQueuedAction(queued.id)}
-                        disabled={loading}
-                      >
-                        Retirer
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <h3>Rapport du dernier tour</h3>
-            <div className="details-block report-block">
-              {world.lastResolutionReport ? (
+            <h3>Last round</h3>
+            <div className="details-block">
+              {game.lastRoundSummary ? (
                 <>
-                  <p>
-                    Tick {world.lastResolutionReport.tick} | Annee {world.lastResolutionReport.year} | Ordres executes: {world.lastResolutionReport.executedCount}
-                  </p>
-                  {world.lastResolutionReport.highlights.map((line, index) => (
-                    <p key={`${world.lastResolutionReport?.tick ?? 0}-${index}`}>{line}</p>
+                  <p>Tick {game.lastRoundSummary.tick} | {game.lastRoundSummary.month}/{game.lastRoundSummary.year}</p>
+                  <p>Applied orders: {game.lastRoundSummary.appliedOrders}</p>
+                  {game.lastRoundSummary.highlights.map((line, index) => (
+                    <p key={`${game.lastRoundSummary?.tick ?? 0}-${index}`}>{line}</p>
                   ))}
                 </>
               ) : (
-                <p>Aucun tour resolu pour le moment.</p>
+                <p>No round resolved yet.</p>
               )}
             </div>
 
-            <h3>Continents</h3>
-            <div className="details-block continent-list">
-              {continentOverview.map((continent) => (
-                <p key={continent.name}>
-                  {continent.name} | {continent.cells} territoires | tension moy. {continent.avgTension}
-                </p>
-              ))}
-            </div>
-
-            <h3>Evenements locaux</h3>
+            <h3>Recent events</h3>
             <div className="event-feed">
-              {localEvents.length > 0 ? (
-                localEvents.map((evt) => (
-                  <article key={evt.id} className="event-item local-event">
-                    <strong>{eventTypeLabel(evt.type)} - annee {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
-                    <p>{evt.title}</p>
-                    <small>{evt.description}</small>
-                  </article>
-                ))
-              ) : (
-                <p className="event-empty">Aucun evenement local pour ce territoire.</p>
-              )}
-            </div>
-
-            <h3>Factions</h3>
-            <div className="details-block">
-              {world.factions.map((faction) => (
-                <p key={faction.id}>
-                  {faction.name} | P{faction.power} | R{faction.resources}
-                </p>
-              ))}
-            </div>
-
-            <h3>Evenements globaux recents</h3>
-            <div className="event-feed">
-              {world.events.slice(0, 8).map((evt) => (
-                <article key={evt.id} className="event-item">
-                  <strong>{eventTypeLabel(evt.type)} - annee {yearAtEvent(world, evt.tick)} (tick {evt.tick})</strong>
-                  <p>{evt.title}</p>
-                  <small>{evt.description}</small>
+              {game.events.slice(0, 10).map((event) => (
+                <article key={event.id} className={`event-item ${eventBadge(event.type)}`}>
+                  <strong>{eventLabel(event.type)} | {event.month}/{event.year}</strong>
+                  <p>{event.title}</p>
+                  <small>{event.description}</small>
                 </article>
               ))}
             </div>
 
-            <h3>Briefing IA</h3>
+            <h3>Advisor</h3>
             <div className="details-block">
-              {briefing ? (
-                <>
-                  <p>Provider: {briefing.provider}</p>
-                  <p>{briefing.narrative}</p>
-                </>
-              ) : (
-                <p>Genere une narration locale depuis le backend.</p>
-              )}
+              {advisorText ? <p>{advisorText}</p> : <p>Ask advisor for a strategic briefing.</p>}
             </div>
           </aside>
-        </section>
-      )}
-
-      {showJson && (
-        <section>
-          <h2>Monde (JSON)</h2>
-          <pre>{JSON.stringify(world, null, 2)}</pre>
         </section>
       )}
     </main>

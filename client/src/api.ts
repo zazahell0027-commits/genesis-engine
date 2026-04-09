@@ -1,22 +1,13 @@
-import type { CreateWorldInput, EventType, PlayerActionType, World } from "@genesis/shared";
+﻿import type {
+  AdvisorResponse,
+  CountryDescriptor,
+  DiplomacyExchange,
+  GameState,
+  JumpStep,
+  ScenarioDescriptor
+} from "@genesis/shared";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
-
-export type JumpStep = "week" | "month" | "quarter" | "year";
-
-export type WorldBriefing = {
-  provider: string;
-  narrative: string;
-  tick: number;
-};
-
-export type DiplomacyResponse = {
-  targetCountry: string;
-  stance: "friendly" | "neutral" | "hostile";
-  reply: string;
-  tick: number;
-  year: number;
-};
 
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -34,152 +25,91 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function createWorld(input: CreateWorldInput): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/create`, {
+export async function getScenarios(): Promise<ScenarioDescriptor[]> {
+  const response = await fetch(`${API_BASE_URL}/scenarios`);
+  return parseJson<ScenarioDescriptor[]>(response);
+}
+
+export async function getCountries(scenarioId: string): Promise<CountryDescriptor[]> {
+  const response = await fetch(`${API_BASE_URL}/countries?scenarioId=${encodeURIComponent(scenarioId)}`);
+  return parseJson<CountryDescriptor[]>(response);
+}
+
+export async function startGame(scenarioId: string, countryId: string): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
+    body: JSON.stringify({ scenarioId, countryId })
   });
 
-  return parseJson<World>(response);
+  return parseJson<GameState>(response);
 }
 
-export async function createDemoWorld(): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/demo`, {
-    method: "POST"
-  });
-
-  return parseJson<World>(response);
+export async function getGame(gameId: string): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/${gameId}`);
+  return parseJson<GameState>(response);
 }
 
-export async function fetchWorld(worldId: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/${worldId}`, {
-    method: "GET"
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function tickWorld(worldId: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/tick`, {
+export async function queueOrder(gameId: string, text: string): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/order`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId })
+    body: JSON.stringify({ gameId, text })
   });
 
-  return parseJson<World>(response);
+  return parseJson<GameState>(response);
 }
 
-export async function resolveWorldTurn(worldId: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/resolve`, {
+export async function removeOrder(gameId: string, orderId: string): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/order/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId })
+    body: JSON.stringify({ gameId, orderId })
   });
 
-  return parseJson<World>(response);
+  return parseJson<GameState>(response);
 }
 
-export async function jumpWorld(worldId: string, step: JumpStep): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/jump`, {
+export async function jumpForward(gameId: string, step: JumpStep): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/jump`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, step })
+    body: JSON.stringify({ gameId, step })
   });
 
-  return parseJson<World>(response);
+  return parseJson<GameState>(response);
 }
 
-export async function jumpToMajorEvent(worldId: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/jump/major-event`, {
+export async function jumpToMajorEvent(gameId: string): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/jump/major-event`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId })
+    body: JSON.stringify({ gameId })
   });
 
-  return parseJson<World>(response);
+  return parseJson<GameState>(response);
 }
 
-export async function triggerWorldEvent(worldId: string, type?: EventType): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/event`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, type })
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function getWorldBriefing(worldId: string): Promise<WorldBriefing> {
-  const response = await fetch(`${API_BASE_URL}/world/briefing`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId })
-  });
-
-  return parseJson<WorldBriefing>(response);
-}
-
-export async function applyPlayerAction(worldId: string, cellId: string, action: PlayerActionType): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/action`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, cellId, action })
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function queuePlayerAction(worldId: string, cellId: string, action: PlayerActionType): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/action/queue`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, cellId, action })
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function removeQueuedPlayerAction(worldId: string, queuedActionId: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/action/remove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, queuedActionId })
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function submitTurnCommand(worldId: string, text: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/command/submit`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, text })
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function removeTurnCommand(worldId: string, commandId: string): Promise<World> {
-  const response = await fetch(`${API_BASE_URL}/world/command/remove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, commandId })
-  });
-
-  return parseJson<World>(response);
-}
-
-export async function sendDiplomacyMessage(
-  worldId: string,
-  targetCountry: string,
+export async function sendDiplomacy(
+  gameId: string,
+  targetCountryId: string,
   message: string
-): Promise<DiplomacyResponse> {
-  const response = await fetch(`${API_BASE_URL}/world/diplomacy/send`, {
+): Promise<DiplomacyExchange> {
+  const response = await fetch(`${API_BASE_URL}/game/diplomacy`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ worldId, targetCountry, message })
+    body: JSON.stringify({ gameId, targetCountryId, message })
   });
 
-  return parseJson<DiplomacyResponse>(response);
+  return parseJson<DiplomacyExchange>(response);
+}
+
+export async function getAdvisor(gameId: string): Promise<AdvisorResponse> {
+  const response = await fetch(`${API_BASE_URL}/game/advisor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gameId })
+  });
+
+  return parseJson<AdvisorResponse>(response);
 }
