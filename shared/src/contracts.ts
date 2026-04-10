@@ -61,12 +61,15 @@ export type PresetSummary = {
   subtitle: string;
   category: PresetCategoryId;
   era: string;
+  tags?: string[];
   coverImage: string;
   bannerImage?: string;
   startDate: PresetDate;
   stats: PresetStats;
   featured: boolean;
   playable: boolean;
+  defaultTokens?: number;
+  defaultDifficulty?: DifficultyLevel;
   official: boolean;
   creator: string;
   accent: string;

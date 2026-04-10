@@ -1,8 +1,10 @@
-﻿import { createAIProvider } from "./ai/index.js";
+import { createAIProvider } from "./ai/index.js";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
+import { hydrateWorldStore } from "./world.js";
 
 const ai = createAIProvider();
+hydrateWorldStore();
 const app = createApp(ai);
 
 const server = app.listen(config.port, async () => {

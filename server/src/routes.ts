@@ -3,6 +3,7 @@ import type {
   AdvisorSuggestion,
   CreateGameInput,
   DiplomacyInput,
+  GameState,
   JumpInput,
   QuickActionInput,
   QueueOrderInput,
@@ -22,16 +23,20 @@ import {
 } from "./simulation.js";
 import {
   createGame,
+  deleteGame,
+  earnTokens,
   formatDate,
   getGame,
   getGameSetupOptions,
   getPresetBrowser,
+  getTokenBalance,
   listCountries,
   listGameSessions,
   listPresetCategories,
   listScenarios,
   monthLabel,
-  saveGame
+  saveGame,
+  spendTokens
 } from "./world.js";
 
 type LoadedGame = NonNullable<ReturnType<typeof getGame>>;
@@ -56,6 +61,15 @@ const STRATEGIC_COUNTRY_IDS = new Set([
 
 function ensureString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function ensureNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function blocSummaryFromGame(gameId: string) {
@@ -562,8 +576,14 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
   app.get("/presets", (_req: Request, res: Response) => {
     res.json(getPresetBrowser());
   });
+  app.get("/api/presets", (_req: Request, res: Response) => {
+    res.json(getPresetBrowser());
+  });
 
   app.get("/presets/categories", (_req: Request, res: Response) => {
+    res.json(listPresetCategories());
+  });
+  app.get("/api/presets/categories", (_req: Request, res: Response) => {
     res.json(listPresetCategories());
   });
 
@@ -580,8 +600,26 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
   app.get("/games", (_req: Request, res: Response) => {
     res.json(listGameSessions());
   });
+  app.get("/api/games", (_req: Request, res: Response) => {
+    res.json(listGameSessions());
+  });
 
   app.post("/game/start", (req: Request, res: Response) => {
+    const payload = (req.body ?? {}) as Partial<CreateGameInput>;
+    const presetId = ensureString(payload.presetId);
+    const countryId = ensureString(payload.countryId);
+    const difficulty = ensureString(payload.difficulty) as CreateGameInput["difficulty"];
+    const aiQuality = ensureString(payload.aiQuality) as CreateGameInput["aiQuality"];
+
+    if (!presetId || !countryId || !difficulty || !aiQuality) {
+      res.status(400).json({ error: "presetId, countryId, difficulty and aiQuality are required" });
+      return;
+    }
+
+    const game = createGame({ presetId, countryId, difficulty, aiQuality });
+    res.status(201).json(game);
+  });
+  app.post("/api/games", (req: Request, res: Response) => {
     const payload = (req.body ?? {}) as Partial<CreateGameInput>;
     const presetId = ensureString(payload.presetId);
     const countryId = ensureString(payload.countryId);
@@ -607,6 +645,89 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     }
 
     res.json(game);
+  });
+  app.get("/api/games/:gameId", (req: Request, res: Response) => {
+    const gameId = ensureString(req.params.gameId);
+    const game = getGame(gameId);
+
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return;
+    }
+
+    res.json(game);
+  });
+  app.put("/api/games/:gameId", (req: Request, res: Response) => {
+    const gameId = ensureString(req.params.gameId);
+    const existing = getGame(gameId);
+    if (!existing) {
+      res.status(404).json({ error: "Game not found" });
+      return;
+    }
+
+    const maybeState = req.body?.state as GameState | undefined;
+    if (maybeState && typeof maybeState === "object" && ensureString(maybeState.id) === gameId) {
+      saveGame(maybeState);
+      res.json(maybeState);
+      return;
+    }
+
+    const tokenBalance = ensureNumber(req.body?.tokenBalance);
+    if (tokenBalance !== null) {
+      existing.tokenBalance = Number(Math.max(0, tokenBalance).toFixed(3));
+      saveGame(existing);
+      res.json(existing);
+      return;
+    }
+
+    res.status(400).json({ error: "Provide state or tokenBalance." });
+  });
+  app.delete("/api/games/:gameId", (req: Request, res: Response) => {
+    const gameId = ensureString(req.params.gameId);
+    if (!gameId) {
+      res.status(400).json({ error: "gameId is required" });
+      return;
+    }
+
+    const removed = deleteGame(gameId);
+    if (!removed) {
+      res.status(404).json({ error: "Game not found" });
+      return;
+    }
+
+    res.status(204).send();
+  });
+
+  app.get("/api/tokens", (req: Request, res: Response) => {
+    const userId = ensureString(req.query.userId) || undefined;
+    const balance = getTokenBalance(userId);
+    res.json({ userId: userId ?? "local-player", balance });
+  });
+  app.post("/api/tokens/earn", (req: Request, res: Response) => {
+    const userId = ensureString(req.body?.userId) || undefined;
+    const amount = ensureNumber(req.body?.amount);
+    if (amount === null || amount <= 0) {
+      res.status(400).json({ error: "amount must be a positive number" });
+      return;
+    }
+
+    const balance = earnTokens(amount, userId);
+    res.json({ userId: userId ?? "local-player", balance });
+  });
+  app.post("/api/tokens/spend", (req: Request, res: Response) => {
+    const userId = ensureString(req.body?.userId) || undefined;
+    const amount = ensureNumber(req.body?.amount);
+    if (amount === null || amount <= 0) {
+      res.status(400).json({ error: "amount must be a positive number" });
+      return;
+    }
+
+    try {
+      const balance = spendTokens(amount, userId);
+      res.json({ userId: userId ?? "local-player", balance });
+    } catch (error) {
+      res.status(409).json({ error: error instanceof Error ? error.message : "Unable to spend tokens" });
+    }
   });
 
   app.post("/game/order", async (req: Request, res: Response) => {

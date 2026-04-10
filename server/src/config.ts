@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import path from "node:path";
 
 dotenv.config();
 
@@ -8,6 +9,8 @@ function readEnv(key: string): string | undefined {
 
 export const config = {
   port: Number(readEnv("SERVER_PORT") ?? 4000),
+  dbPath: readEnv("SERVER_DB_PATH") ?? path.resolve(process.cwd(), ".data", "genesis.sqlite"),
+  localUserId: readEnv("LOCAL_USER_ID") ?? "local-player",
   aiEnabled: readEnv("AI_ENABLED") !== "false",
   aiProvider: readEnv("AI_PROVIDER") ?? "ollama",
   ollamaBaseUrl: readEnv("OLLAMA_BASE_URL") ?? "http://localhost:11434",

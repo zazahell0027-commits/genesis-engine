@@ -25,3 +25,8 @@ client/dist/
 
 # TypeScript
 *.tsbuildinfo
+
+# Local runtime data
+server/.data/
+server/.tmp-test/
+*.sqlite

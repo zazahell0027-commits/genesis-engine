@@ -1,70 +1,90 @@
-﻿# Genesis Engine
+# Genesis Engine (Pax-Inspired Sandbox)
 
-Genesis Engine is a web strategy sandbox focused on one core loop:
-
-1. Pick a scenario and a country.
-2. Write text orders and diplomacy messages.
-3. Jump time forward.
-4. Read consequences on map and events.
-5. Adapt strategy and repeat.
-
-## Current Restart Scope
-
-This version is a full restart of the previous codebase.
-
-Included now:
-- Scenario start flow (`Earth 2010`)
-- Full country list with search (175 countries)
-- Interactive world map (bloc / tension / stability lenses)
-- Text order system with queue and removal
-- Time jump system (`week`, `month`, `quarter`, `year`)
-- `Next Major Event` jump
-- Diplomacy messaging with simulated stance/reply
-- Event feed and round summary
-- Advisor endpoint (mock by default, backend-only)
+Strategy sandbox inspired by Pax Historia with:
+- Preset browser + launch flow
+- Full-screen map gameplay
+- Orders, quick actions, diplomacy, advisor
+- Timeline snapshots and event window
+- Local persistence with SQLite
 
 ## Stack
-
 - Client: React + Vite + TypeScript
-- Server: Node.js + Express + TypeScript
-- Shared contracts package: TypeScript
-- Data: in-memory game state
+- Server: Express + TypeScript
+- Shared contracts: `shared/`
+- Persistence: SQLite (`node:sqlite`)
 
-## Monorepo Structure
+## Monorepo
+- `client/` web UI
+- `server/` API + simulation + persistence
+- `shared/` shared types
 
-- `client/` React application
-- `server/` API and simulation engine
-- `shared/` shared contracts used by client/server
-
-## Run Local
-
-```bash
+## Local Run
+```powershell
 cd C:\Users\Zizi\Documents\genesis-engine
 npm install
+$env:AI_PROVIDER="ollama"
+$env:OLLAMA_CHAT_MODEL="mistral:latest"
 npm run dev
 ```
 
-- Client: `http://localhost:5173`
-- Server: `http://localhost:4000`
+Client: `http://localhost:5173`  
+Server: `http://localhost:4000`
 
-## API Surface (MVP)
+If port `4000` is busy:
+```powershell
+$env:SERVER_PORT="4102"
+$env:VITE_API_BASE_URL="http://localhost:4102"
+npm run dev
+```
 
-- `GET /health`
-- `GET /scenarios`
-- `GET /countries?scenarioId=earth-2010`
+## Persistence
+Game state is saved automatically in SQLite:
+- Default path: `server/.data/genesis.sqlite`
+- Override with env: `SERVER_DB_PATH`
+
+## Tests
+```powershell
+cd C:\Users\Zizi\Documents\genesis-engine
+npm test
+```
+
+Current suite validates:
+- `/health`
+- advisor output structure
+- token earn/spend API
+
+## API (Main)
+Gameplay:
 - `POST /game/start`
 - `GET /game/:gameId`
 - `POST /game/order`
+- `POST /game/quick-action`
 - `POST /game/order/remove`
 - `POST /game/jump`
 - `POST /game/jump/major-event`
 - `POST /game/diplomacy`
 - `POST /game/advisor`
 
-## Next Priorities
+Preset/browser:
+- `GET /presets`
+- `GET /presets/categories`
+- `GET /presets/:presetId/setup`
+- `GET /countries`
 
-1. Country-level attack/defend quick actions on map click
-2. Preset browser UI (cards + categories + metadata)
-3. Continent and regional pressure overlays
-4. Better diplomacy memory and bilateral relation history
-5. Optional Ollama narrative mode for richer advisor output
+Persistent APIs:
+- `GET /api/presets`
+- `GET /api/games`
+- `POST /api/games`
+- `GET /api/games/:gameId`
+- `DELETE /api/games/:gameId`
+- `GET /api/tokens`
+- `POST /api/tokens/earn`
+- `POST /api/tokens/spend`
+
+## Deployment Notes
+- Ensure your LLM service (e.g. Ollama) is running before server start.
+- Keep `SERVER_DB_PATH` on persistent volume in production.
+- Add CI steps for `npm run typecheck`, `npm test`, `npm run build`.
+
+## Docs
+- Architecture overview: `docs/ARCHITECTURE.md`

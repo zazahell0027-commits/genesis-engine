@@ -21,9 +21,33 @@ import type {
   WorldIndicators
 } from "@genesis/shared";
 import { COUNTRY_ANCHORS, normalizeCountryKey } from "./data/countryAnchors.js";
+import {
+  deletePersistedGame,
+  getWalletBalance,
+  initializeDatabase,
+  loadPersistedGames,
+  setWalletBalance,
+  upsertGameState
+} from "./database.js";
+import { config } from "./config.js";
 
 const games = new Map<string, GameState>();
 const gameUpdatedAt = new Map<string, number>();
+
+function getLocalWalletBalance(fallback: number): number {
+  const stored = getWalletBalance(config.localUserId);
+  if (stored !== null) {
+    return Number(Math.max(0, stored).toFixed(3));
+  }
+
+  const seeded = Number(Math.max(0, fallback).toFixed(3));
+  setWalletBalance(config.localUserId, seeded);
+  return seeded;
+}
+
+function syncWalletWithGame(game: GameState): void {
+  setWalletBalance(config.localUserId, game.tokenBalance);
+}
 
 const JUMP_OPTIONS: JumpOption[] = [
   { step: "week", label: "1 week" },
@@ -70,12 +94,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "Global war sandbox with tense alliances and rapid escalation.",
     category: "historical",
     era: "1900s",
+    tags: ["historical", "war", "global", "high-tension"],
     coverImage: "/media/covers/ww2_card.png",
     bannerImage: "/media/covers/ww2_card.png",
     startDate: { year: 1939, month: 9, day: 1, label: "September 1st, 1939" },
     stats: { rounds: "4.0M rounds", games: "401K games", playlists: "11K playlists" },
     featured: true,
     playable: true,
+    defaultTokens: 1.974,
+    defaultDifficulty: "Standard",
     official: true,
     creator: "Pax Historia",
     accent: "#7c3aed",
@@ -94,12 +121,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "Contemporary geopolitics with diplomacy, sanctions, and proxy pressure.",
     category: "historical",
     era: "2000s",
+    tags: ["historical", "modern", "diplomacy", "economy"],
     coverImage: "/media/covers/modern_day_card.png",
     bannerImage: "/media/covers/modern_day_card.png",
     startDate: { year: 2025, month: 1, day: 1, label: "January 1st, 2025" },
     stats: { rounds: "3.6M rounds", games: "429K games", playlists: "9K playlists" },
     featured: true,
     playable: true,
+    defaultTokens: 1.274,
+    defaultDifficulty: "Standard",
     official: true,
     creator: "Pax Historia",
     accent: "#9f67ff",
@@ -118,12 +148,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "A denser version of the contemporary map with extra hotspots.",
     category: "alt-historical",
     era: "2000s",
+    tags: ["alt-historical", "detailed", "regional-hotspots"],
     coverImage: "/media/covers/detailed_2025_card.png",
     bannerImage: "/media/covers/detailed_2025_card.png",
     startDate: { year: 2025, month: 1, day: 8, label: "January 8th, 2025" },
     stats: { rounds: "2.3M rounds", games: "226K games", playlists: "6K playlists" },
     featured: true,
     playable: true,
+    defaultTokens: 1.274,
+    defaultDifficulty: "Challenging",
     official: false,
     creator: "Community",
     accent: "#6366f1",
@@ -142,12 +175,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "Empires, prestige, reform, and colonial maneuvering.",
     category: "historical",
     era: "1800s",
+    tags: ["historical", "empire", "prestige", "industrial"],
     coverImage: "/media/covers/victorian_card.png",
     bannerImage: "/media/covers/victorian_card.png",
     startDate: { year: 1884, month: 1, day: 1, label: "January 1st, 1884" },
     stats: { rounds: "1.3M rounds", games: "97K games", playlists: "3K playlists" },
     featured: true,
     playable: true,
+    defaultTokens: 1.274,
+    defaultDifficulty: "Standard",
     official: false,
     creator: "Community",
     accent: "#d97706",
@@ -166,12 +202,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "A chaotic custom world where diplomacy collapses fast.",
     category: "science-fiction",
     era: "Experimental",
+    tags: ["science-fiction", "chaotic", "high-risk"],
     coverImage: "/media/covers/battle_royale_card.png",
     bannerImage: "/media/chronology_panel.webp",
     startDate: { year: 2026, month: 4, day: 1, label: "April 1st, 2026" },
     stats: { rounds: "920K rounds", games: "81K games", playlists: "1.9K playlists" },
     featured: false,
     playable: true,
+    defaultTokens: 0.988,
+    defaultDifficulty: "Challenging",
     official: false,
     creator: "Community",
     accent: "#ef4444",
@@ -190,12 +229,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "Roleplay-heavy sandbox for custom states and alternate regimes.",
     category: "historical-fiction",
     era: "Open-ended",
+    tags: ["historical-fiction", "roleplay", "sandbox"],
     coverImage: "/media/covers/cannon_card.png",
     bannerImage: "/media/covers/cannon_card.png",
     startDate: { year: 1911, month: 1, day: 1, label: "January 1st, 1911" },
     stats: { rounds: "710K rounds", games: "63K games", playlists: "1.1K playlists" },
     featured: false,
     playable: true,
+    defaultTokens: 0.988,
+    defaultDifficulty: "Relaxed",
     official: false,
     creator: "Community",
     accent: "#ec4899",
@@ -214,12 +256,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "Regional fragmentation across North America and the Atlantic world.",
     category: "alt-historical",
     era: "1900s",
+    tags: ["alt-historical", "regional", "fragmented"],
     coverImage: "/media/covers/shattered_americas_card.png",
     bannerImage: "/media/world_map_ui.png",
     startDate: { year: 1962, month: 10, day: 1, label: "October 1st, 1962" },
     stats: { rounds: "530K rounds", games: "42K games", playlists: "870 playlists" },
     featured: false,
     playable: true,
+    defaultTokens: 1.274,
+    defaultDifficulty: "Standard",
     official: false,
     creator: "Community",
     accent: "#22c55e",
@@ -238,12 +283,15 @@ const PRESETS: PresetSummary[] = [
     subtitle: "Massive sandbox energy with dense interaction and fast narrative turnover.",
     category: "fantasy",
     era: "Experimental",
+    tags: ["fantasy", "massive", "community"],
     coverImage: "/media/covers/islands_card.png",
     bannerImage: "/media/chronology_panel.webp",
     startDate: { year: 2032, month: 6, day: 1, label: "June 1st, 2032" },
     stats: { rounds: "410K rounds", games: "28K games", playlists: "730 playlists" },
     featured: false,
     playable: true,
+    defaultTokens: 0.988,
+    defaultDifficulty: "Challenging",
     official: false,
     creator: "Community",
     accent: "#14b8a6",
@@ -581,6 +629,25 @@ function buildTimeline(game: GameState): TimelineEntry[] {
     });
 }
 
+export function hydrateWorldStore(): void {
+  initializeDatabase();
+  games.clear();
+  gameUpdatedAt.clear();
+
+  const persistedGames = loadPersistedGames();
+  for (const persistedGame of persistedGames) {
+    try {
+      saveGame(persistedGame);
+    } catch {
+      continue;
+    }
+  }
+
+  if (persistedGames.length === 0) {
+    getLocalWalletBalance(initialTokenBalance("Balanced"));
+  }
+}
+
 export function listScenarios(): ScenarioDescriptor[] {
   return PRESETS;
 }
@@ -732,6 +799,8 @@ export function saveGame(game: GameState): void {
 
   games.set(game.id, game);
   gameUpdatedAt.set(game.id, Date.now());
+  upsertGameState(game);
+  syncWalletWithGame(game);
 }
 
 export function createGame(input: CreateGameInput): GameState {
@@ -780,7 +849,7 @@ export function createGame(input: CreateGameInput): GameState {
     },
     timeline: [],
     snapshots: [],
-    tokenBalance: initialTokenBalance(input.aiQuality),
+    tokenBalance: getLocalWalletBalance(initialTokenBalance(input.aiQuality)),
     availableJumpOptions: JUMP_OPTIONS,
     uiState: {
       activePanel: "events",
@@ -856,6 +925,37 @@ export function listGameSessions(): GameSessionSummary[] {
 
 export function getGame(gameId: string): GameState | undefined {
   return games.get(gameId);
+}
+
+export function deleteGame(gameId: string): boolean {
+  const hadInMemory = games.delete(gameId);
+  gameUpdatedAt.delete(gameId);
+  const removedFromDb = deletePersistedGame(gameId);
+  return hadInMemory || removedFromDb;
+}
+
+export function getTokenBalance(userId = config.localUserId): number {
+  const stored = getWalletBalance(userId);
+  if (stored !== null) {
+    return Number(Math.max(0, stored).toFixed(3));
+  }
+
+  return setWalletBalance(userId, initialTokenBalance("Balanced"));
+}
+
+export function earnTokens(amount: number, userId = config.localUserId): number {
+  const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  const current = getTokenBalance(userId);
+  return setWalletBalance(userId, current + safeAmount);
+}
+
+export function spendTokens(amount: number, userId = config.localUserId): number {
+  const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  const current = getTokenBalance(userId);
+  if (safeAmount > current) {
+    throw new Error("Insufficient tokens.");
+  }
+  return setWalletBalance(userId, current - safeAmount);
 }
 
 export function normalizeCountryId(input: string): string {

@@ -11,6 +11,11 @@ import type {
   QuickActionKind
 } from "@genesis/shared";
 
+type TokenBalanceResponse = {
+  userId: string;
+  balance: number;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -54,6 +59,11 @@ export async function listGames(): Promise<GameSessionSummary[]> {
   return parseJson<GameSessionSummary[]>(response);
 }
 
+export async function listGamesApi(): Promise<GameSessionSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/api/games`);
+  return parseJson<GameSessionSummary[]>(response);
+}
+
 export async function startGame(input: {
   presetId: string;
   countryId: string;
@@ -72,6 +82,13 @@ export async function startGame(input: {
 export async function getGame(gameId: string): Promise<GameState> {
   const response = await fetch(`${API_BASE_URL}/game/${gameId}`);
   return parseJson<GameState>(response);
+}
+
+export async function deleteGameSession(gameId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/games/${encodeURIComponent(gameId)}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204) {
+    await parseJson<Record<string, unknown>>(response);
+  }
 }
 
 export async function queueOrder(gameId: string, text: string): Promise<GameState> {
@@ -150,4 +167,28 @@ export async function getAdvisor(gameId: string): Promise<AdvisorResponse> {
   });
 
   return parseJson<AdvisorResponse>(response);
+}
+
+export async function getTokens(userId?: string): Promise<TokenBalanceResponse> {
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  const response = await fetch(`${API_BASE_URL}/api/tokens${query}`);
+  return parseJson<TokenBalanceResponse>(response);
+}
+
+export async function earnTokens(amount: number, userId?: string): Promise<TokenBalanceResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/tokens/earn`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, userId })
+  });
+  return parseJson<TokenBalanceResponse>(response);
+}
+
+export async function spendTokens(amount: number, userId?: string): Promise<TokenBalanceResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/tokens/spend`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, userId })
+  });
+  return parseJson<TokenBalanceResponse>(response);
 }
