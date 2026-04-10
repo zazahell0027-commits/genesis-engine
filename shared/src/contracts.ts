@@ -342,4 +342,18 @@ export type AdvisorResponse = {
   month: number;
   day: number;
   dateLabel: string;
+  insights: string[];
+  suggestions: AdvisorSuggestion[];
+};
+
+export type AdvisorSuggestion = {
+  id: string;
+  label: string;
+  rationale: string;
+  impact: string;
+  kind: TurnOrderKind;
+  urgency: "low" | "medium" | "high";
+  orderText: string;
+  targetCountryId?: string;
+  targetCountryName?: string;
 };

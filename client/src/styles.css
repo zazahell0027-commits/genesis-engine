@@ -1047,8 +1047,9 @@ svg {
 
 .game-status-pill {
   position: absolute;
-  top: 8.9rem;
-  right: 1rem;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 7;
   display: flex;
   flex-direction: column;
@@ -1365,19 +1366,19 @@ svg {
 }
 
 .events-panel {
-  top: 1.9rem;
+  top: 6.65rem;
   left: 1rem;
-  width: min(438px, calc(100vw - 2rem));
-  max-height: calc(100vh - 10.5rem);
-  overflow: auto;
+  width: min(440px, calc(100vw - 2rem));
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
 }
 
 .timeline-panel {
-  top: 8.25rem;
+  top: 6.65rem;
   right: 1rem;
-  width: min(306px, calc(100vw - 2rem));
-  max-height: calc(100vh - 10.5rem);
-  overflow: auto;
+  width: min(330px, calc(100vw - 2rem));
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
   background: rgba(20, 26, 44, 0.9);
   color: white;
 }
@@ -1395,11 +1396,35 @@ svg {
 .side-panel,
 .search-panel,
 .menu-panel {
-  top: 7rem;
-  left: 1rem;
-  width: min(430px, calc(100vw - 2rem));
-  max-height: calc(100vh - 9rem);
-  overflow: auto;
+  top: 6.65rem;
+  right: 1rem;
+  left: auto;
+  width: min(438px, calc(100vw - 2rem));
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
+}
+
+.events-panel > .overlay-heading,
+.side-panel > .overlay-heading,
+.search-panel > .overlay-heading,
+.menu-panel > .overlay-heading,
+.timeline-panel > .overlay-heading {
+  position: sticky;
+  top: -0.2rem;
+  z-index: 2;
+  padding-bottom: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.events-panel > .overlay-heading,
+.side-panel > .overlay-heading,
+.search-panel > .overlay-heading,
+.menu-panel > .overlay-heading {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.82));
+}
+
+.timeline-panel > .overlay-heading {
+  background: linear-gradient(180deg, rgba(20, 26, 44, 0.96), rgba(20, 26, 44, 0.86));
 }
 
 .event-badges,
@@ -1613,6 +1638,95 @@ svg {
   background: rgba(244, 238, 255, 0.78);
 }
 
+.advisor-insights,
+.advisor-suggestion-list,
+.advisor-history-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+
+.advisor-insight-line {
+  margin: 0;
+  padding: 0.66rem 0.8rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid var(--line);
+  color: #445065;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.advisor-suggestion-card {
+  padding: 0.82rem 0.9rem;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.advisor-suggestion-card p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 0.88rem;
+}
+
+.advisor-suggestion-card .secondary-button {
+  margin-top: 0.65rem;
+}
+
+.advisor-suggestion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.advisor-suggestion-header strong {
+  line-height: 1.25;
+}
+
+.advisor-suggestion-header span {
+  padding: 0.24rem 0.52rem;
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: rgba(142, 75, 255, 0.12);
+  color: var(--accent-strong);
+}
+
+.advisor-suggestion-card.urgency-high {
+  border-left: 4px solid #ef3f71;
+}
+
+.advisor-suggestion-card.urgency-medium {
+  border-left: 4px solid #8f63ff;
+}
+
+.advisor-suggestion-card.urgency-low {
+  border-left: 4px solid #4fa872;
+}
+
+.advisor-history-card {
+  padding: 0.72rem 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px dashed rgba(104, 111, 128, 0.35);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.advisor-history-card strong {
+  display: block;
+  margin-bottom: 0.22rem;
+}
+
+.advisor-history-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.38;
+}
+
 .text-button {
   padding: 0.7rem 0.9rem;
   border-radius: 0.9rem;
@@ -1680,11 +1794,6 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  .timeline-panel {
-    position: static;
-    width: auto;
-    margin: 1rem;
-  }
 }
 
 @media (max-width: 820px) {
@@ -1757,6 +1866,7 @@ svg {
     top: 8.55rem;
     left: 0.75rem;
     right: 0.75rem;
+    transform: none;
   }
 
   .game-busy-banner {

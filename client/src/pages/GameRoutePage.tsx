@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import type { AdvisorResponse, GameState, JumpStep, QuickActionKind, TimelineEntry } from "@genesis/shared";
+import type { AdvisorResponse, AdvisorSuggestion, GameState, JumpStep, QuickActionKind, TimelineEntry } from "@genesis/shared";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   getAdvisor,
@@ -88,6 +88,10 @@ function getBusyCopy(action: BusyAction, targetCountryName?: string): { title: s
   return null;
 }
 
+function isQuickActionKind(value: string): value is QuickActionKind {
+  return value === "attack" || value === "defend" || value === "stabilize" || value === "invest";
+}
+
 export function GameRoutePage(props: {
   onError: (message: string | null) => void;
   onTokenBalanceChange: (value: number | null) => void;
@@ -108,6 +112,7 @@ export function GameRoutePage(props: {
   const [diplomacyText, setDiplomacyText] = useState("");
   const [diplomacyTargetId, setDiplomacyTargetId] = useState("");
   const [advisorResponse, setAdvisorResponse] = useState<AdvisorResponse | null>(null);
+  const [advisorHistory, setAdvisorHistory] = useState<AdvisorResponse[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const busy = busyAction !== null;
 
@@ -119,6 +124,8 @@ export function GameRoutePage(props: {
     let cancelled = false;
     async function loadGameState(): Promise<void> {
       setLoading(true);
+      setAdvisorResponse(null);
+      setAdvisorHistory([]);
       onError(null);
       try {
         const loaded = await getGame(currentGameId);
@@ -312,9 +319,27 @@ export function GameRoutePage(props: {
       const response = await getAdvisor(currentGame.id);
       const updated = await getGame(currentGame.id);
       setAdvisorResponse(response);
+      setAdvisorHistory((current) => [response, ...current.filter((entry) => entry.tick !== response.tick)].slice(0, 8));
       await applyGameUpdate(updated, "advisor");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Unable to load advisor");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleAdvisorSuggestion(suggestion: AdvisorSuggestion): Promise<void> {
+    const currentGame = game;
+    if (!currentGame) return;
+    setBusyAction("order");
+    onError(null);
+    try {
+      const updated = suggestion.targetCountryId && isQuickActionKind(suggestion.kind)
+        ? await queueQuickAction(currentGame.id, suggestion.targetCountryId, suggestion.kind)
+        : await queueOrder(currentGame.id, suggestion.orderText);
+      await applyGameUpdate(updated, "actions");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Unable to apply advisor action");
     } finally {
       setBusyAction(null);
     }
@@ -707,11 +732,55 @@ export function GameRoutePage(props: {
               <div className="empty-panel">No advisor briefing cached yet. Generate one for the current world state.</div>
             )}
 
+            {advisorResponse && advisorResponse.insights.length > 0 && (
+              <div className="advisor-insights">
+                {advisorResponse.insights.map((insight) => (
+                  <p key={insight} className="advisor-insight-line">{insight}</p>
+                ))}
+              </div>
+            )}
+
+            {advisorResponse && advisorResponse.suggestions.length > 0 && (
+              <div className="advisor-suggestion-list">
+                {advisorResponse.suggestions.map((suggestion) => (
+                  <article key={suggestion.id} className={`advisor-suggestion-card urgency-${suggestion.urgency}`}>
+                    <div className="advisor-suggestion-header">
+                      <strong>{suggestion.label}</strong>
+                      <span>{suggestion.urgency.toUpperCase()}</span>
+                    </div>
+                    <p>{suggestion.rationale}</p>
+                    <p>{suggestion.impact}</p>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        void handleAdvisorSuggestion(suggestion);
+                      }}
+                      disabled={busy}
+                    >
+                      Queue this action
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+
             {busyAction === "advisor" && (
               <article className="advisor-card is-pending">
                 <strong>{game.displayDate}</strong>
                 <p>Generating a new briefing from the current world pressure...</p>
               </article>
+            )}
+
+            {advisorHistory.length > 1 && (
+              <div className="advisor-history-list">
+                {advisorHistory.slice(1, 4).map((entry) => (
+                  <article key={`${entry.tick}-${entry.dateLabel}`} className="advisor-history-card">
+                    <strong>{entry.dateLabel}</strong>
+                    <p>{entry.narrative}</p>
+                  </article>
+                ))}
+              </div>
             )}
 
             <div className="panel-actions">

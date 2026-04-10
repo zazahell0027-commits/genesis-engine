@@ -1,11 +1,13 @@
 import type {
   AdvisorResponse,
+  AdvisorSuggestion,
   CreateGameInput,
   DiplomacyInput,
   JumpInput,
   QuickActionInput,
   QueueOrderInput,
-  RemoveOrderInput
+  RemoveOrderInput,
+  TurnOrderKind
 } from "@genesis/shared";
 import type { Request, Response } from "express";
 import type { AIProvider } from "./ai/types.js";
@@ -32,6 +34,26 @@ import {
   saveGame
 } from "./world.js";
 
+type LoadedGame = NonNullable<ReturnType<typeof getGame>>;
+type LoadedCountry = LoadedGame["countries"][number];
+const STRATEGIC_COUNTRY_IDS = new Set([
+  "united states",
+  "china",
+  "russia",
+  "france",
+  "united kingdom",
+  "germany",
+  "japan",
+  "india",
+  "italy",
+  "turkey",
+  "brazil",
+  "poland",
+  "iran",
+  "ukraine",
+  "saudi arabia"
+]);
+
 function ensureString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -48,6 +70,219 @@ function blocSummaryFromGame(gameId: string) {
     .sort((a, b) => b[1] - a[1])
     .map(([bloc, count]) => `${bloc}(${count})`)
     .join(", ");
+}
+
+function pickStrategicThreat(game: LoadedGame): LoadedCountry | undefined {
+  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
+  const scoped = game.countries
+    .filter((country) => country.id !== game.playerCountryId)
+    .filter((country) => (
+      country.continent === player.continent ||
+      STRATEGIC_COUNTRY_IDS.has(country.id) ||
+      game.preset.recommendedCountries.includes(country.id)
+    ));
+  const candidates = scoped.length > 0
+    ? scoped
+    : game.countries
+      .filter((country) => country.id !== game.playerCountryId)
+      .filter((country) => country.power >= 45 || country.army >= 6);
+  const recommendedPool = game.countries
+    .filter((country) => country.id !== game.playerCountryId)
+    .filter((country) => game.preset.recommendedCountries.includes(country.id));
+  const threatPool = recommendedPool.length > 0 ? recommendedPool : candidates;
+
+  return threatPool
+    .map((country) => ({
+      country,
+      score:
+        Math.max(0, -country.relationToPlayer) * 1.8 +
+        country.tension * 1.05 +
+        country.power * 0.9 +
+        country.army * 2.2 +
+        (country.continent === player.continent ? 26 : -10) +
+        (STRATEGIC_COUNTRY_IDS.has(country.id) || game.preset.recommendedCountries.includes(country.id) ? 22 : -8)
+    }))
+    .sort((a, b) => b.score - a.score)[0]?.country;
+}
+
+function pickStrategicPartner(game: LoadedGame): LoadedCountry | undefined {
+  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
+  const scoped = game.countries
+    .filter((country) => country.id !== game.playerCountryId)
+    .filter((country) => (
+      country.continent === player.continent ||
+      STRATEGIC_COUNTRY_IDS.has(country.id) ||
+      game.preset.recommendedCountries.includes(country.id)
+    ));
+  const candidates = scoped.length > 0
+    ? scoped
+    : game.countries
+      .filter((country) => country.id !== game.playerCountryId)
+      .filter((country) => country.power >= 42 || country.relationToPlayer >= 18);
+  const recommendedPool = game.countries
+    .filter((country) => country.id !== game.playerCountryId)
+    .filter((country) => game.preset.recommendedCountries.includes(country.id));
+  const partnerPool = recommendedPool.length > 0 ? recommendedPool : candidates;
+
+  return partnerPool
+    .map((country) => ({
+      country,
+      score:
+        country.relationToPlayer * 1.9 +
+        country.stability * 1.1 +
+        country.wealth * 0.7 +
+        country.power * 0.75 -
+        country.tension * 0.85 +
+        (country.continent === player.continent ? 18 : 0) +
+        (STRATEGIC_COUNTRY_IDS.has(country.id) || game.preset.recommendedCountries.includes(country.id) ? 14 : -6)
+    }))
+    .sort((a, b) => b.score - a.score)[0]?.country;
+}
+
+function buildAdvisorInsights(gameId: string): string[] {
+  const game = getGame(gameId);
+  if (!game) return [];
+
+  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
+  const topThreat = pickStrategicThreat(game);
+  const bestPartner = pickStrategicPartner(game);
+
+  const insights: string[] = [
+    `World pressure: stability ${game.indicators.avgStability}, wealth ${game.indicators.avgWealth}, tension ${game.indicators.avgTension} (${game.indicators.conflictLevel}).`,
+    `${player.name}: stability ${player.stability}, unrest ${player.unrest}, army ${player.army}, industry ${player.industry}.`
+  ];
+
+  if (topThreat) {
+    insights.push(`Primary threat: ${topThreat.name} (relation ${topThreat.relationToPlayer}, tension ${topThreat.tension}).`);
+  }
+  if (bestPartner && bestPartner.relationToPlayer > 0) {
+    insights.push(`Best diplomatic channel: ${bestPartner.name} (relation ${bestPartner.relationToPlayer}).`);
+  }
+
+  return insights.slice(0, 4);
+}
+
+function buildAdvisorSuggestions(gameId: string): AdvisorSuggestion[] {
+  const game = getGame(gameId);
+  if (!game) return [];
+
+  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
+  const rivals = game.countries.filter((country) => country.id !== game.playerCountryId);
+  const topThreat = pickStrategicThreat(game);
+  const bestPartner = pickStrategicPartner(game);
+  const weakestState = [...rivals]
+    .filter((country) => country.power >= 34)
+    .sort((a, b) => a.stability - b.stability)[0];
+  const playerCountryId = game.playerCountryId;
+
+  const suggestions: AdvisorSuggestion[] = [];
+  function pushSuggestion(input: {
+    label: string;
+    rationale: string;
+    impact: string;
+    kind: TurnOrderKind;
+    urgency: AdvisorSuggestion["urgency"];
+    orderText: string;
+    targetCountryId?: string;
+    targetCountryName?: string;
+  }): void {
+    const idBase = `${input.kind}:${input.targetCountryId ?? playerCountryId}:${suggestions.length + 1}`;
+    suggestions.push({
+      id: idBase,
+      ...input
+    });
+  }
+
+  if (topThreat) {
+    pushSuggestion({
+      label: `Harden frontier vs ${topThreat.name}`,
+      rationale: `${topThreat.name} is currently your strongest pressure source.`,
+      impact: "Defensive posture up, short-term stability risk contained.",
+      kind: "defend",
+      urgency: topThreat.relationToPlayer <= -35 || topThreat.tension >= 70 ? "high" : "medium",
+      orderText: `Fortify frontier positions facing ${topThreat.name}, rotate reserves, and prioritize defensive readiness over expansion.`,
+      targetCountryId: topThreat.id,
+      targetCountryName: topThreat.name
+    });
+  }
+
+  if (player.unrest >= 4 || player.stability <= 55) {
+    pushSuggestion({
+      label: "Stabilize internal pressure",
+      rationale: `Domestic pressure is elevated (${player.unrest} unrest, ${player.stability} stability).`,
+      impact: "Stability up, tension down, safer next jumps.",
+      kind: "stabilize",
+      urgency: player.unrest >= 6 || player.stability <= 46 ? "high" : "medium",
+      orderText: "Launch a domestic stabilization package with relief, policing, and political messaging to reduce unrest.",
+      targetCountryId: game.playerCountryId,
+      targetCountryName: game.playerCountryName
+    });
+  }
+
+  if (player.industry <= 6 || player.wealth <= 57) {
+    pushSuggestion({
+      label: "Boost industry and logistics",
+      rationale: "Economic depth is below your expansion threshold.",
+      impact: "Industry and wealth growth for medium-term leverage.",
+      kind: "invest",
+      urgency: "medium",
+      orderText: "Accelerate industrial and logistics investment focused on rail, ports, and critical production.",
+      targetCountryId: game.playerCountryId,
+      targetCountryName: game.playerCountryName
+    });
+  }
+
+  if (bestPartner && bestPartner.relationToPlayer >= 8) {
+    pushSuggestion({
+      label: `Open talks with ${bestPartner.name}`,
+      rationale: "This is your best current diplomatic opening.",
+      impact: "Potential relation gain and lower regional tension.",
+      kind: "diplomacy",
+      urgency: "medium",
+      orderText: `Propose a phased security and trade understanding with ${bestPartner.name}, with verification and non-aggression clauses.`,
+      targetCountryId: bestPartner.id,
+      targetCountryName: bestPartner.name
+    });
+  }
+
+  if (topThreat && (topThreat.relationToPlayer <= -58 || topThreat.tension >= 78) && player.power >= topThreat.power - 3) {
+    pushSuggestion({
+      label: `Prepare pressure on ${topThreat.name}`,
+      rationale: "Escalation conditions are met and your balance of power is viable.",
+      impact: "Higher pressure and deterrence at the cost of tension.",
+      kind: "attack",
+      urgency: "medium",
+      orderText: `Prepare a coordinated pressure campaign against ${topThreat.name} with military readiness and controlled escalation.`,
+      targetCountryId: topThreat.id,
+      targetCountryName: topThreat.name
+    });
+  } else if (weakestState && weakestState.stability <= 42) {
+    pushSuggestion({
+      label: `Exploit instability around ${weakestState.name}`,
+      rationale: `${weakestState.name} is the weakest nearby system this round.`,
+      impact: "Regional leverage increase with manageable diplomatic fallout.",
+      kind: "pressure",
+      urgency: "low",
+      orderText: `Apply calibrated political and economic pressure around ${weakestState.name} while keeping deniability.`,
+      targetCountryId: weakestState.id,
+      targetCountryName: weakestState.name
+    });
+  }
+
+  if (suggestions.length === 0) {
+    pushSuggestion({
+      label: "Consolidate home front",
+      rationale: "No urgent external trigger was detected this round.",
+      impact: "Safer baseline before the next jump.",
+      kind: "stabilize",
+      urgency: "low",
+      orderText: "Consolidate domestic stability, improve resilience, and avoid unnecessary escalation.",
+      targetCountryId: game.playerCountryId,
+      targetCountryName: game.playerCountryName
+    });
+  }
+
+  return suggestions.slice(0, 5);
 }
 
 function normalizeLoose(value: string): string {
@@ -254,7 +489,7 @@ function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AI
   const mergedForValidation = `${cleanedTitle} ${cleanedDescription} ${cleanedMapInput}`;
   const shouldFallback = looksLikePromptDump(mergedForValidation) || cleanedDescription.length < 26;
 
-  const cleanedMapChange = /->|→|â†’|attack|defend/i.test(cleanedMapInput)
+  const cleanedMapChange = /->|attack|defend/i.test(cleanedMapInput)
     ? fallbackMapSummary
     : cleanedMapInput.length > 0
       ? cleanedMapInput
@@ -264,7 +499,7 @@ function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AI
     .map((line) => normalizeNarrativeText(line))
     .filter((line) => line.length > 0 && line.length <= 180 && !looksLikePromptDump(line))
     .map((line) => (
-      /->|→|â†’/.test(line)
+      /->/.test(line)
         ? `${game.playerCountryName} and its rivals adjusted posture after the latest orders.`
         : line
     ));
@@ -587,8 +822,10 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
 
     const cleanedNarrative = narrative
       .trim()
-      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+      .replace(/^["']+|["']+$/g, "")
       .replace(/\s+/g, " ");
+    const insights = buildAdvisorInsights(gameId);
+    const suggestions = buildAdvisorSuggestions(gameId);
     const response: AdvisorResponse = {
       provider: ai.providerName,
       narrative: `${monthLabel(game.month)} ${game.day}, ${game.year} | ${cleanedNarrative}`,
@@ -596,7 +833,9 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       year: game.year,
       month: game.month,
       day: game.day,
-      dateLabel: formatDate(game.year, game.month, game.day)
+      dateLabel: formatDate(game.year, game.month, game.day),
+      insights,
+      suggestions
     };
 
     res.json(response);
