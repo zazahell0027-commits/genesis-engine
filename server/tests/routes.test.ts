@@ -39,6 +39,39 @@ describe("API routes", () => {
     expect(typeof advisor.body.suggestions[0].orderText).toBe("string");
   });
 
+  test("advisor supports snapshot context and question prompts", async () => {
+    const created = await request(app)
+      .post("/api/games")
+      .send({
+        presetId: "world-war-ii",
+        countryId: "france",
+        difficulty: "Standard",
+        aiQuality: "Balanced"
+      })
+      .expect(201);
+
+    const jumped = await request(app)
+      .post("/game/jump")
+      .send({ gameId: created.body.id, step: "month" })
+      .expect(200);
+
+    const snapshotId = jumped.body.snapshots?.[jumped.body.snapshots.length - 1]?.id as string | undefined;
+    expect(typeof snapshotId).toBe("string");
+
+    const advisor = await request(app)
+      .post("/game/advisor")
+      .send({
+        gameId: created.body.id,
+        snapshotId,
+        prompt: "Should we prioritize diplomacy or defense?"
+      })
+      .expect(200);
+
+    expect(advisor.body.snapshotId).toBe(snapshotId);
+    expect(advisor.body.question).toBe("Should we prioritize diplomacy or defense?");
+    expect(typeof advisor.body.narrative).toBe("string");
+  });
+
   test("token endpoints earn and spend balance", async () => {
     const wallet = await request(app).get("/api/tokens").expect(200);
     const startBalance = Number(wallet.body.balance);

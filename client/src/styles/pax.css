@@ -79,3 +79,21 @@
   font-family: "Cinzel", "Times New Roman", serif;
   letter-spacing: 0.02em;
 }
+
+.app-shell.is-game-route .map-tool-button {
+  background: rgba(14, 23, 42, 0.85);
+  border-color: rgba(137, 161, 233, 0.3);
+  color: #edf2ff;
+}
+
+.app-shell.is-game-route .map-tool-button.mode-button.is-active {
+  background: rgba(147, 108, 255, 0.2);
+  border-color: rgba(166, 129, 255, 0.42);
+  color: #f1e9ff;
+}
+
+.app-shell.is-game-route .legend-item {
+  background: rgba(16, 24, 44, 0.8);
+  border: 1px solid rgba(137, 161, 233, 0.22);
+  color: #edf2ff;
+}

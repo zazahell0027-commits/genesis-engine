@@ -113,6 +113,7 @@ export function GameRoutePage(props: {
   const [diplomacyTargetId, setDiplomacyTargetId] = useState("");
   const [advisorResponse, setAdvisorResponse] = useState<AdvisorResponse | null>(null);
   const [advisorHistory, setAdvisorHistory] = useState<AdvisorResponse[]>([]);
+  const [advisorPrompt, setAdvisorPrompt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const busy = busyAction !== null;
 
@@ -138,6 +139,7 @@ export function GameRoutePage(props: {
         setJumpStep(loaded.availableJumpOptions[1]?.step ?? loaded.availableJumpOptions[0]?.step ?? "month");
         setViewedSnapshotId(null);
         setDiplomacyTargetId(loaded.countries.find((country) => country.id !== loaded.playerCountryId)?.id ?? loaded.playerCountryId);
+        setAdvisorPrompt("");
         onTokenBalanceChange(loaded.tokenBalance);
       } catch (error) {
         onError(error instanceof Error ? error.message : "Unable to load game");
@@ -316,10 +318,16 @@ export function GameRoutePage(props: {
     setBusyAction("advisor");
     onError(null);
     try {
-      const response = await getAdvisor(currentGame.id);
+      const response = await getAdvisor(currentGame.id, {
+        snapshotId: viewedSnapshotId ?? undefined,
+        prompt: advisorPrompt.trim() || undefined
+      });
       const updated = await getGame(currentGame.id);
       setAdvisorResponse(response);
-      setAdvisorHistory((current) => [response, ...current.filter((entry) => entry.tick !== response.tick)].slice(0, 8));
+      setAdvisorHistory((current) => [
+        response,
+        ...current.filter((entry) => `${entry.tick}:${entry.snapshotId ?? "live"}` !== `${response.tick}:${response.snapshotId ?? "live"}`)
+      ].slice(0, 8));
       await applyGameUpdate(updated, "advisor");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Unable to load advisor");
@@ -331,6 +339,14 @@ export function GameRoutePage(props: {
   async function handleAdvisorSuggestion(suggestion: AdvisorSuggestion): Promise<void> {
     const currentGame = game;
     if (!currentGame) return;
+
+    if (suggestion.kind === "diplomacy" && suggestion.targetCountryId) {
+      setDiplomacyTargetId(suggestion.targetCountryId);
+      setDiplomacyText(suggestion.orderText);
+      setPanel("chats");
+      return;
+    }
+
     setBusyAction("order");
     onError(null);
     try {
@@ -713,20 +729,37 @@ export function GameRoutePage(props: {
             <div className="overlay-heading">
               <div>
                 <h2>Advisor</h2>
-                <p>Contextual guidance for the current round and world pressure.</p>
+                <p>
+                  {viewedSnapshotId
+                    ? "Historical mode: briefing is generated from the selected snapshot."
+                    : "Contextual guidance for the current round and world pressure."}
+                </p>
               </div>
               <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
             </div>
 
             <div className="advisor-summary">
-              <strong>{game.displayDate}</strong>
-              <span>{`${game.preset.title} | ${game.playerCountryName}`}</span>
+              <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
+              <span>{`${game.preset.title} | ${game.playerCountryName}${viewedSnapshotId ? " | Snapshot" : ""}`}</span>
             </div>
+
+            <label className="field-block">
+              <span>Advisor focus (optional)</span>
+              <textarea
+                value={advisorPrompt}
+                onChange={(event) => setAdvisorPrompt(event.target.value)}
+                rows={3}
+                className="large-textarea advisor-question-textarea"
+                placeholder={viewedSnapshotId
+                  ? "Ask about this historical round: what should have happened next?"
+                  : "Ask for a focused plan: diplomacy, economy, military, or internal stability."}
+              />
+            </label>
 
             {advisorResponse ? (
               <article className="advisor-card">
                 <strong>{advisorResponse.dateLabel}</strong>
-                <p>{advisorResponse.narrative}</p>
+                <p>{advisorResponse.question ? `Question: ${advisorResponse.question} ` : ""}{advisorResponse.narrative}</p>
               </article>
             ) : (
               <div className="empty-panel">No advisor briefing cached yet. Generate one for the current world state.</div>
@@ -758,7 +791,7 @@ export function GameRoutePage(props: {
                       }}
                       disabled={busy}
                     >
-                      Queue this action
+                      {suggestion.kind === "diplomacy" ? "Open in Chats" : "Queue this action"}
                     </button>
                   </article>
                 ))}
@@ -785,7 +818,11 @@ export function GameRoutePage(props: {
 
             <div className="panel-actions">
               <button type="button" className="primary-button" onClick={handleAdvisor} disabled={busy}>
-                {busyAction === "advisor" ? "Thinking..." : "Generate Briefing"}
+                {busyAction === "advisor"
+                  ? "Thinking..."
+                  : viewedSnapshotId
+                    ? "Generate Snapshot Briefing"
+                    : "Generate Briefing"}
               </button>
             </div>
           </section>

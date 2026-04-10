@@ -22,6 +22,7 @@ import {
   sendDiplomacyMessage
 } from "./simulation.js";
 import {
+  computeIndicators,
   createGame,
   deleteGame,
   earnTokens,
@@ -41,6 +42,18 @@ import {
 
 type LoadedGame = NonNullable<ReturnType<typeof getGame>>;
 type LoadedCountry = LoadedGame["countries"][number];
+type AdvisorFrame = {
+  game: LoadedGame;
+  countries: LoadedCountry[];
+  indicators: LoadedGame["indicators"];
+  tick: number;
+  year: number;
+  month: number;
+  day: number;
+  dateLabel: string;
+  snapshotId?: string;
+  eventIds: string[];
+};
 const STRATEGIC_COUNTRY_IDS = new Set([
   "united states",
   "china",
@@ -75,8 +88,12 @@ function ensureNumber(value: unknown): number | null {
 function blocSummaryFromGame(gameId: string) {
   const game = getGame(gameId);
   if (!game) return "";
+  return blocSummaryFromCountries(game.countries);
+}
+
+function blocSummaryFromCountries(countries: LoadedCountry[]): string {
   const blocCounts = new Map<string, number>();
-  for (const country of game.countries) {
+  for (const country of countries) {
     blocCounts.set(country.bloc, (blocCounts.get(country.bloc) ?? 0) + 1);
   }
 
@@ -86,9 +103,10 @@ function blocSummaryFromGame(gameId: string) {
     .join(", ");
 }
 
-function pickStrategicThreat(game: LoadedGame): LoadedCountry | undefined {
-  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
-  const scoped = game.countries
+function pickStrategicThreat(frame: AdvisorFrame): LoadedCountry | undefined {
+  const { game, countries } = frame;
+  const player = countries.find((country) => country.id === game.playerCountryId) ?? countries[0];
+  const scoped = countries
     .filter((country) => country.id !== game.playerCountryId)
     .filter((country) => (
       country.continent === player.continent ||
@@ -97,10 +115,10 @@ function pickStrategicThreat(game: LoadedGame): LoadedCountry | undefined {
     ));
   const candidates = scoped.length > 0
     ? scoped
-    : game.countries
+    : countries
       .filter((country) => country.id !== game.playerCountryId)
       .filter((country) => country.power >= 45 || country.army >= 6);
-  const recommendedPool = game.countries
+  const recommendedPool = countries
     .filter((country) => country.id !== game.playerCountryId)
     .filter((country) => game.preset.recommendedCountries.includes(country.id));
   const threatPool = recommendedPool.length > 0 ? recommendedPool : candidates;
@@ -119,9 +137,10 @@ function pickStrategicThreat(game: LoadedGame): LoadedCountry | undefined {
     .sort((a, b) => b.score - a.score)[0]?.country;
 }
 
-function pickStrategicPartner(game: LoadedGame): LoadedCountry | undefined {
-  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
-  const scoped = game.countries
+function pickStrategicPartner(frame: AdvisorFrame): LoadedCountry | undefined {
+  const { game, countries } = frame;
+  const player = countries.find((country) => country.id === game.playerCountryId) ?? countries[0];
+  const scoped = countries
     .filter((country) => country.id !== game.playerCountryId)
     .filter((country) => (
       country.continent === player.continent ||
@@ -130,10 +149,10 @@ function pickStrategicPartner(game: LoadedGame): LoadedCountry | undefined {
     ));
   const candidates = scoped.length > 0
     ? scoped
-    : game.countries
+    : countries
       .filter((country) => country.id !== game.playerCountryId)
       .filter((country) => country.power >= 42 || country.relationToPlayer >= 18);
-  const recommendedPool = game.countries
+  const recommendedPool = countries
     .filter((country) => country.id !== game.playerCountryId)
     .filter((country) => game.preset.recommendedCountries.includes(country.id));
   const partnerPool = recommendedPool.length > 0 ? recommendedPool : candidates;
@@ -153,16 +172,14 @@ function pickStrategicPartner(game: LoadedGame): LoadedCountry | undefined {
     .sort((a, b) => b.score - a.score)[0]?.country;
 }
 
-function buildAdvisorInsights(gameId: string): string[] {
-  const game = getGame(gameId);
-  if (!game) return [];
-
-  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
-  const topThreat = pickStrategicThreat(game);
-  const bestPartner = pickStrategicPartner(game);
+function buildAdvisorInsights(frame: AdvisorFrame): string[] {
+  const { game, countries, indicators } = frame;
+  const player = countries.find((country) => country.id === game.playerCountryId) ?? countries[0];
+  const topThreat = pickStrategicThreat(frame);
+  const bestPartner = pickStrategicPartner(frame);
 
   const insights: string[] = [
-    `World pressure: stability ${game.indicators.avgStability}, wealth ${game.indicators.avgWealth}, tension ${game.indicators.avgTension} (${game.indicators.conflictLevel}).`,
+    `World pressure: stability ${indicators.avgStability}, wealth ${indicators.avgWealth}, tension ${indicators.avgTension} (${indicators.conflictLevel}).`,
     `${player.name}: stability ${player.stability}, unrest ${player.unrest}, army ${player.army}, industry ${player.industry}.`
   ];
 
@@ -176,14 +193,12 @@ function buildAdvisorInsights(gameId: string): string[] {
   return insights.slice(0, 4);
 }
 
-function buildAdvisorSuggestions(gameId: string): AdvisorSuggestion[] {
-  const game = getGame(gameId);
-  if (!game) return [];
-
-  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
-  const rivals = game.countries.filter((country) => country.id !== game.playerCountryId);
-  const topThreat = pickStrategicThreat(game);
-  const bestPartner = pickStrategicPartner(game);
+function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
+  const { game, countries } = frame;
+  const player = countries.find((country) => country.id === game.playerCountryId) ?? countries[0];
+  const rivals = countries.filter((country) => country.id !== game.playerCountryId);
+  const topThreat = pickStrategicThreat(frame);
+  const bestPartner = pickStrategicPartner(frame);
   const weakestState = [...rivals]
     .filter((country) => country.power >= 34)
     .sort((a, b) => a.stability - b.stability)[0];
@@ -297,6 +312,111 @@ function buildAdvisorSuggestions(gameId: string): AdvisorSuggestion[] {
   }
 
   return suggestions.slice(0, 5);
+}
+
+function buildAdvisorFrame(game: LoadedGame, snapshotId?: string): AdvisorFrame {
+  if (!snapshotId) {
+    return {
+      game,
+      countries: game.countries,
+      indicators: game.indicators,
+      tick: game.tick,
+      year: game.year,
+      month: game.month,
+      day: game.day,
+      dateLabel: game.displayDate,
+      eventIds: game.eventWindow.eventIds
+    };
+  }
+
+  const snapshot = game.snapshots.find((entry) => entry.id === snapshotId);
+  if (!snapshot) {
+    return {
+      game,
+      countries: game.countries,
+      indicators: game.indicators,
+      tick: game.tick,
+      year: game.year,
+      month: game.month,
+      day: game.day,
+      dateLabel: game.displayDate,
+      eventIds: game.eventWindow.eventIds
+    };
+  }
+
+  return {
+    game,
+    countries: snapshot.countries,
+    indicators: computeIndicators(snapshot.countries),
+    tick: snapshot.tick,
+    year: snapshot.year,
+    month: snapshot.month,
+    day: snapshot.day,
+    dateLabel: snapshot.displayDate,
+    snapshotId: snapshot.id,
+    eventIds: snapshot.eventIds
+  };
+}
+
+function summarizeQueuedOrders(game: LoadedGame): string {
+  if (game.queuedOrders.length === 0) return "none";
+  return game.queuedOrders
+    .slice(0, 4)
+    .map((order) => `${order.kind.toUpperCase()} -> ${order.targetCountryId}`)
+    .join("; ");
+}
+
+function summarizeRecentDiplomacy(game: LoadedGame, targetCountryId?: string): string {
+  const selected = game.diplomacyLog
+    .filter((entry) => !targetCountryId || entry.targetCountryId === targetCountryId)
+    .slice(0, 4);
+
+  if (selected.length === 0) return "no recent diplomatic exchanges";
+  return selected
+    .map((entry) => `${entry.dateLabel} ${entry.targetCountryName} (${entry.stance}): ${entry.message}`)
+    .join(" | ");
+}
+
+function summarizeRecentEvents(game: LoadedGame, eventIds?: string[]): string {
+  const selectedEvents = (eventIds && eventIds.length > 0
+    ? eventIds
+      .map((id) => game.events.find((event) => event.id === id) ?? null)
+      .filter((event): event is NonNullable<typeof event> => Boolean(event))
+    : game.events.slice(0, 6));
+
+  if (selectedEvents.length === 0) return "no recent event context";
+  return selectedEvents
+    .slice(0, 4)
+    .map((event) => `${event.dateLabel} ${event.title}`)
+    .join(" | ");
+}
+
+function summarizeCountryPulse(frame: AdvisorFrame): string {
+  const hottest = [...frame.countries].sort((a, b) => b.tension - a.tension)[0];
+  const weakest = [...frame.countries].sort((a, b) => a.stability - b.stability)[0];
+  const strongest = [...frame.countries].sort((a, b) => b.power - a.power)[0];
+  const sections: string[] = [];
+
+  if (hottest) sections.push(`Highest tension: ${hottest.name} (${hottest.tension})`);
+  if (weakest) sections.push(`Lowest stability: ${weakest.name} (${weakest.stability})`);
+  if (strongest) sections.push(`Highest power: ${strongest.name} (${strongest.power})`);
+
+  return sections.join("; ");
+}
+
+function summarizePlayerState(frame: AdvisorFrame): string {
+  const player = frame.countries.find((country) => country.id === frame.game.playerCountryId) ?? frame.countries[0];
+  if (!player) return "player state unavailable";
+
+  return [
+    `Power ${player.power}`,
+    `Stability ${player.stability}`,
+    `Tension ${player.tension}`,
+    `Army ${player.army}`,
+    `Industry ${player.industry}`,
+    `Fortification ${player.fortification}`,
+    `Unrest ${player.unrest}`
+  ].join(", ");
 }
 
 function normalizeLoose(value: string): string {
@@ -436,6 +556,10 @@ function describeWorldPressure(gameId: string): string {
   return `Global stability ${game.indicators.avgStability}, wealth ${game.indicators.avgWealth}, tension ${game.indicators.avgTension}, conflict ${game.indicators.conflictLevel}.`;
 }
 
+function describeFramePressure(frame: AdvisorFrame): string {
+  return `Global stability ${frame.indicators.avgStability}, wealth ${frame.indicators.avgWealth}, tension ${frame.indicators.avgTension}, conflict ${frame.indicators.conflictLevel}.`;
+}
+
 function sanitizeRoundNarrativeLegacy(gameId: string, narrative: Awaited<ReturnType<AIProvider["generateRoundNarrative"]>>) {
   const game = getGame(gameId);
   if (!game) return narrative;
@@ -535,6 +659,7 @@ function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AI
 async function enrichJumpNarrative(ai: AIProvider, gameId: string, fromDateLabel: string): Promise<void> {
   const game = getGame(gameId);
   if (!game || !game.lastRoundSummary) return;
+  const frame = buildAdvisorFrame(game);
 
   const eventWindowOrders = game.eventWindow.eventIds
     .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
@@ -557,7 +682,9 @@ async function enrichJumpNarrative(ai: AIProvider, gameId: string, fromDateLabel
     avgStability: game.indicators.avgStability,
     avgTension: game.indicators.avgTension,
     latestEventText: game.events[0]?.title,
-    worldPressureText: describeWorldPressure(gameId)
+    worldPressureText: describeWorldPressure(gameId),
+    recentEventsText: summarizeRecentEvents(game, frame.eventIds),
+    countryPulseText: summarizeCountryPulse(frame)
   });
   const narrative = sanitizeRoundNarrative(gameId, rawNarrative);
 
@@ -887,6 +1014,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
 
     try {
       const target = game.countries.find((country) => country.id === targetCountryId);
+      const recentConversationText = summarizeRecentDiplomacy(game, targetCountryId);
       const aiOutcome = target
         ? await ai.generateDiplomacyReply({
           presetTitle: game.preset.title,
@@ -896,7 +1024,9 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
           message,
           relationToPlayer: target.relationToPlayer,
           tension: target.tension,
-          stability: target.stability
+          stability: target.stability,
+          worldPressureText: describeWorldPressure(gameId),
+          recentConversationText
         })
         : undefined;
 
@@ -910,6 +1040,8 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
 
   app.post("/game/advisor", async (req: Request, res: Response) => {
     const gameId = ensureString(req.body?.gameId);
+    const snapshotIdInput = ensureString(req.body?.snapshotId);
+    const question = ensureString(req.body?.prompt);
     if (!gameId) {
       res.status(400).json({ error: "gameId is required" });
       return;
@@ -921,21 +1053,41 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       return;
     }
 
+    const frame = buildAdvisorFrame(game, snapshotIdInput || undefined);
+    const contextEvents = summarizeRecentEvents(game, frame.eventIds);
+    const latestContextEvent = (frame.eventIds
+      .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
+      .filter((event): event is NonNullable<typeof event> => Boolean(event))[0])
+      ?? game.events[0];
+    const timelineContext = frame.snapshotId
+      ? game.timeline.find((entry) => entry.snapshotId === frame.snapshotId)?.subtitle ?? ""
+      : "";
+
     const narrative = await ai.generateWorldNarrative({
       worldName: game.preset.title,
       scenarioId: game.presetId,
-      year: game.year,
-      tick: game.tick,
+      year: frame.year,
+      month: frame.month,
+      day: frame.day,
+      dateLabel: frame.dateLabel,
+      tick: frame.tick,
       role: "nation",
       kind: game.preset.category,
       complexity: game.aiQuality.toLowerCase(),
+      playerCountryName: game.playerCountryName,
       actionPoints: game.actionPoints,
       maxActionPoints: game.maxActionPoints,
-      avgRichness: game.indicators.avgWealth,
-      avgStability: game.indicators.avgStability,
-      avgTension: game.indicators.avgTension,
-      factionsText: blocSummaryFromGame(gameId),
-      latestEventText: game.events[0]?.title
+      avgRichness: frame.indicators.avgWealth,
+      avgStability: frame.indicators.avgStability,
+      avgTension: frame.indicators.avgTension,
+      factionsText: blocSummaryFromCountries(frame.countries),
+      playerStateText: summarizePlayerState(frame),
+      queuedOrdersText: summarizeQueuedOrders(game),
+      recentEventsText: contextEvents,
+      diplomacyContextText: summarizeRecentDiplomacy(game),
+      timelineContextText: timelineContext,
+      advisorQuestion: question || undefined,
+      latestEventText: latestContextEvent?.title
     });
 
     game.tokenBalance = Number(Math.max(0.111, game.tokenBalance - 0.034).toFixed(3));
@@ -945,16 +1097,18 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       .trim()
       .replace(/^["']+|["']+$/g, "")
       .replace(/\s+/g, " ");
-    const insights = buildAdvisorInsights(gameId);
-    const suggestions = buildAdvisorSuggestions(gameId);
+    const insights = buildAdvisorInsights(frame);
+    const suggestions = buildAdvisorSuggestions(frame);
     const response: AdvisorResponse = {
       provider: ai.providerName,
-      narrative: `${monthLabel(game.month)} ${game.day}, ${game.year} | ${cleanedNarrative}`,
-      tick: game.tick,
-      year: game.year,
-      month: game.month,
-      day: game.day,
-      dateLabel: formatDate(game.year, game.month, game.day),
+      narrative: `${monthLabel(frame.month)} ${frame.day}, ${frame.year} | ${cleanedNarrative}`,
+      tick: frame.tick,
+      year: frame.year,
+      month: frame.month,
+      day: frame.day,
+      dateLabel: formatDate(frame.year, frame.month, frame.day),
+      snapshotId: frame.snapshotId,
+      question: question || undefined,
       insights,
       suggestions
     };

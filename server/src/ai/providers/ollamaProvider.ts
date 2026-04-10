@@ -61,15 +61,22 @@ export class OllamaProvider implements AIProvider {
     const prompt = [
       `World: ${input.worldName}`,
       `Scenario: ${input.scenarioId}`,
-      `Year: ${input.year}`,
+      `Date: ${input.dateLabel}`,
       `Type: ${input.kind}`,
       `Player role: ${input.role}`,
+      `Player country: ${input.playerCountryName}`,
       `Complexity: ${input.complexity}`,
       `Tick: ${input.tick}`,
       `Action points: ${input.actionPoints}/${input.maxActionPoints}`,
       `Averages: wealth ${input.avgRichness}, stability ${input.avgStability}, tension ${input.avgTension}`,
       `Factions: ${input.factionsText}`,
+      input.playerStateText ? `Player state: ${input.playerStateText}` : "Player state unavailable.",
+      input.queuedOrdersText ? `Queued orders: ${input.queuedOrdersText}` : "No queued orders.",
+      input.recentEventsText ? `Recent events: ${input.recentEventsText}` : "No recent events text.",
+      input.diplomacyContextText ? `Recent diplomacy: ${input.diplomacyContextText}` : "No recent diplomacy.",
+      input.timelineContextText ? `Snapshot context: ${input.timelineContextText}` : "No snapshot context.",
       input.latestEventText ? `Latest event: ${input.latestEventText}` : "No recent event.",
+      input.advisorQuestion ? `Advisor question: ${input.advisorQuestion}` : "No direct advisor question.",
       "Write a sharp strategy-game advisor briefing in English, 3 sentences max, with cause and consequence."
     ].join("\n");
 
@@ -133,6 +140,8 @@ export class OllamaProvider implements AIProvider {
         `Current relation to player: ${input.relationToPlayer}`,
         `Current target tension: ${input.tension}`,
         `Current target stability: ${input.stability}`,
+        input.worldPressureText ? `World pressure: ${input.worldPressureText}` : "No global pressure context provided.",
+        input.recentConversationText ? `Conversation history: ${input.recentConversationText}` : "No prior conversation context.",
         `Incoming message: ${input.message}`,
         "The reply should feel like a state response, not a chatbot answer.",
         "Keep the reply to 1 or 2 short paragraphs."
@@ -176,6 +185,8 @@ export class OllamaProvider implements AIProvider {
         `Orders summary: ${input.ordersText}`,
         `World pressure: ${input.worldPressureText}`,
         `Averages: wealth ${input.avgRichness}, stability ${input.avgStability}, tension ${input.avgTension}`,
+        input.recentEventsText ? `Recent events context: ${input.recentEventsText}` : "No recent events context.",
+        input.countryPulseText ? `Country pulse context: ${input.countryPulseText}` : "No country pulse context.",
         input.latestEventText ? `Latest event in log: ${input.latestEventText}` : "No major prior event.",
         "Write crisp English suitable for a Pax Historia-like event panel."
       ].join("\n"),

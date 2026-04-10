@@ -64,6 +64,8 @@ type EffectMarker = {
   y: number;
 };
 
+type OverlayMode = "balanced" | "tension" | "army" | "industry";
+
 const geoData = rawWorldGeo as GeoFeatureCollection;
 const DEFAULT_VIEWBOX: ViewBox = { x: 0, y: 0, width: 100, height: 50 };
 const COUNTRY_PALETTE = [
@@ -181,7 +183,22 @@ function tint(hex: string, amount: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function countryFill(country: CountryState, preset: PresetSummary): string {
+function countryFill(country: CountryState, preset: PresetSummary, mode: OverlayMode): string {
+  if (mode === "tension") {
+    const neutral = "#d4d0bf";
+    return tint(neutral, Math.round((country.tension - 50) * 2.35));
+  }
+
+  if (mode === "army") {
+    const militaryBase = "#cbbca4";
+    return tint(militaryBase, Math.round((country.army * 2.8 + country.fortification * 2.2) - 24));
+  }
+
+  if (mode === "industry") {
+    const industrialBase = "#b7c7b0";
+    return tint(industrialBase, Math.round((country.industry * 2.6 + country.wealth * 0.35) - 28));
+  }
+
   const base = COUNTRY_PALETTE[hash(`${preset.id}:${country.id}`) % COUNTRY_PALETTE.length] ?? "#c7d2fe";
   const pressure = Math.round((country.tension - 50) / 4) + country.unrest;
   const production = Math.round((country.industry - 5) / 2);
@@ -228,6 +245,7 @@ export function WorldGeoMap({
   const dragRef = useRef<{ startX: number; startY: number; viewBox: ViewBox } | null>(null);
   const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEWBOX);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
+  const [overlayMode, setOverlayMode] = useState<OverlayMode>("balanced");
 
   const countriesById = useMemo(() => new Map(countries.map((country) => [country.id, country])), [countries]);
   const featuresByCountry = useMemo(() => new Map(FEATURES.map((feature) => [feature.countryId, feature])), []);
@@ -239,7 +257,7 @@ export function WorldGeoMap({
     .filter((item): item is { feature: Feature; country: CountryState } => Boolean(item.country))
     .sort((a, b) => b.country.power - a.country.power)
     .filter((item) => item.feature.bbox.width > 4.6 && item.feature.bbox.height > 1.4)
-    .slice(0, 9);
+    .slice(0, 11);
 
   const effectMarkers = useMemo(() => {
     const grouped = new Map<string, MapEffect[]>();
@@ -370,15 +388,52 @@ export function WorldGeoMap({
   return (
     <div className="world-map-shell">
       <div className="world-map-tools">
-        <button type="button" className="map-tool-button" onClick={recenter}>
-          Reset
-        </button>
-        <button type="button" className="map-tool-button" onClick={focusOnSelected} disabled={!selectedCountry}>
-          Focus
-        </button>
+        <div className="map-mode-row">
+          <button
+            type="button"
+            className={`map-tool-button mode-button${overlayMode === "balanced" ? " is-active" : ""}`}
+            aria-pressed={overlayMode === "balanced"}
+            onClick={() => setOverlayMode("balanced")}
+          >
+            Balanced
+          </button>
+          <button
+            type="button"
+            className={`map-tool-button mode-button${overlayMode === "tension" ? " is-active" : ""}`}
+            aria-pressed={overlayMode === "tension"}
+            onClick={() => setOverlayMode("tension")}
+          >
+            Tension
+          </button>
+          <button
+            type="button"
+            className={`map-tool-button mode-button${overlayMode === "army" ? " is-active" : ""}`}
+            aria-pressed={overlayMode === "army"}
+            onClick={() => setOverlayMode("army")}
+          >
+            Troops
+          </button>
+          <button
+            type="button"
+            className={`map-tool-button mode-button${overlayMode === "industry" ? " is-active" : ""}`}
+            aria-pressed={overlayMode === "industry"}
+            onClick={() => setOverlayMode("industry")}
+          >
+            Industry
+          </button>
+        </div>
+        <div className="map-tool-row">
+          <button type="button" className="map-tool-button" onClick={recenter}>
+            Reset
+          </button>
+          <button type="button" className="map-tool-button" onClick={focusOnSelected} disabled={!selectedCountry}>
+            Focus
+          </button>
+        </div>
       </div>
 
       <div className="world-map-legend">
+        <span className="legend-item legend-mode">{`Mode: ${overlayMode}`}</span>
         <span className="legend-item"><i className="legend-dot kind-army" /> Troops</span>
         <span className="legend-item"><i className="legend-dot kind-fortification" /> Forts</span>
         <span className="legend-item"><i className="legend-dot kind-industry" /> Industry</span>
@@ -446,7 +501,7 @@ export function WorldGeoMap({
               <path
                 key={feature.id}
                 d={feature.path}
-                fill={country ? countryFill(country, preset) : "#b6d0dc"}
+                fill={country ? countryFill(country, preset, overlayMode) : "#b6d0dc"}
                 stroke={isSelected ? "#fffdf4" : preset.mapPalette.landStroke}
                 strokeWidth={isSelected ? 0.34 : 0.16}
                 className={`country-shape${country ? " active" : ""}${isSelected ? " is-selected" : ""}${isImpacted ? " has-impact" : ""}`}
@@ -478,7 +533,7 @@ export function WorldGeoMap({
           })}
 
           {labelFeatures.map(({ feature, country }) => {
-            const fontSize = Math.max(0.66, Math.min(1.8, feature.bbox.width * 0.08));
+            const fontSize = Math.max(0.56, Math.min(1.38, feature.bbox.width * 0.065));
             return (
               <text
                 key={`label-${feature.id}`}

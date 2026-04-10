@@ -4,16 +4,26 @@ export type WorldNarrativeInput = {
   worldName: string;
   scenarioId: string;
   year: number;
+  month: number;
+  day: number;
+  dateLabel: string;
   tick: number;
   role: string;
   kind: string;
   complexity: string;
+  playerCountryName: string;
   actionPoints: number;
   maxActionPoints: number;
   avgRichness: number;
   avgStability: number;
   avgTension: number;
   factionsText: string;
+  playerStateText?: string;
+  queuedOrdersText?: string;
+  recentEventsText?: string;
+  diplomacyContextText?: string;
+  timelineContextText?: string;
+  advisorQuestion?: string;
   latestEventText?: string;
 };
 
@@ -40,6 +50,8 @@ export type DiplomacyReplyInput = {
   relationToPlayer: number;
   tension: number;
   stability: number;
+  worldPressureText?: string;
+  recentConversationText?: string;
 };
 
 export type DiplomacyReply = {
@@ -62,6 +74,8 @@ export type RoundNarrativeInput = {
   avgTension: number;
   latestEventText?: string;
   worldPressureText: string;
+  recentEventsText?: string;
+  countryPulseText?: string;
 };
 
 export type RoundNarrative = {

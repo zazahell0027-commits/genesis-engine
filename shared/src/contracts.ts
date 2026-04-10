@@ -345,6 +345,8 @@ export type AdvisorResponse = {
   month: number;
   day: number;
   dateLabel: string;
+  snapshotId?: string;
+  question?: string;
   insights: string[];
   suggestions: AdvisorSuggestion[];
 };

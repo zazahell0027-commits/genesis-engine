@@ -120,6 +120,21 @@ function createMapEffect(
   };
 }
 
+function pickRegionalCountries(
+  game: GameState,
+  anchorCountryId: string,
+  count: number
+): GameState["countries"] {
+  const anchor = getCountry(game, anchorCountryId);
+  if (!anchor) return [];
+
+  return [...game.countries]
+    .filter((country) => country.id !== anchor.id)
+    .filter((country) => country.continent === anchor.continent)
+    .sort((a, b) => b.power - a.power)
+    .slice(0, Math.max(0, count));
+}
+
 function buildOrderMapEffects(game: GameState, eventId: string, order: TurnOrder, playerCountryId: string): MapEffect[] {
   const targetName = safeCountryName(game, order.targetCountryId);
   const playerName = safeCountryName(game, playerCountryId);
@@ -404,6 +419,8 @@ function simulateNaturalDynamics(game: GameState): GameEvent | null {
 
   if (highTension.length >= Math.ceil(game.countries.length * 0.15)) {
     const target = [...highTension].sort((a, b) => b.tension - a.tension)[0];
+    const nearby = pickRegionalCountries(game, target.id, 2);
+    const crisisEventId = `major-crisis-${game.id}-${game.tick}`;
     return createEvent(
       game,
       "major_crisis",
@@ -415,13 +432,27 @@ function simulateNaturalDynamics(game: GameState): GameEvent | null {
         factionLabel: target.bloc,
         mapChangeSummary: "Regional alertness spikes and nearby actors harden their posture.",
         mapEffects: [
-          createMapEffect(`major-crisis-${game.id}-${game.tick}`, game.tick, "crisis", target.id, `${target.name} enters a severe crisis phase.`, 3)
+          createMapEffect(crisisEventId, game.tick, "crisis", target.id, `${target.name} enters a severe crisis phase.`, 3),
+          createMapEffect(crisisEventId, game.tick, "army", target.id, `${target.name} increases military readiness.`, 2),
+          ...nearby.flatMap((country) => [
+            createMapEffect(crisisEventId, game.tick, "fortification", country.id, `${country.name} fortifies against regional spillover.`, 2, {
+              sourceCountryId: target.id
+            }),
+            createMapEffect(crisisEventId, game.tick, "army", country.id, `${country.name} mobilizes near ${target.name}.`, 1, {
+              sourceCountryId: target.id
+            })
+          ])
         ]
       }
     );
   }
 
   if (indicators.avgStability >= 66 && game.tick % 4 === 0) {
+    const diplomaticPartners = [...game.countries]
+      .filter((country) => country.id !== game.playerCountryId)
+      .sort((a, b) => b.relationToPlayer - a.relationToPlayer)
+      .slice(0, 2);
+    const summitEventId = `bloc-summit-${game.id}-${game.tick}`;
     return createEvent(
       game,
       "major_diplomacy",
@@ -432,13 +463,23 @@ function simulateNaturalDynamics(game: GameState): GameEvent | null {
         factionLabel: "Major Blocs",
         mapChangeSummary: "Influence balances shift without immediate border change.",
         mapEffects: [
-          createMapEffect(`bloc-summit-${game.id}-${game.tick}`, game.tick, "diplomacy", game.playerCountryId, `${game.playerCountryName} enters a fresh diplomatic phase.`, 2)
+          createMapEffect(summitEventId, game.tick, "diplomacy", game.playerCountryId, `${game.playerCountryName} enters a fresh diplomatic phase.`, 2),
+          createMapEffect(summitEventId, game.tick, "stability", game.playerCountryId, `${game.playerCountryName} gains short-term political stability from summit outcomes.`, 1),
+          ...diplomaticPartners.map((country) => (
+            createMapEffect(summitEventId, game.tick, "diplomacy", country.id, `${country.name} aligns its bloc posture at the summit.`, 2, {
+              sourceCountryId: game.playerCountryId
+            })
+          ))
         ]
       }
     );
   }
 
   if (indicators.avgWealth >= 64 && game.tick % 6 === 0) {
+    const growthCountries = [...game.countries]
+      .sort((a, b) => (b.wealth + b.industry) - (a.wealth + a.industry))
+      .slice(0, 3);
+    const growthEventId = `growth-wave-${game.id}-${game.tick}`;
     return createEvent(
       game,
       "major_growth",
@@ -449,13 +490,20 @@ function simulateNaturalDynamics(game: GameState): GameEvent | null {
         factionLabel: "Trade Networks",
         mapChangeSummary: "Infrastructure and industrial capacity trend upward.",
         mapEffects: [
-          createMapEffect(`growth-wave-${game.id}-${game.tick}`, game.tick, "industry", game.playerCountryId, `${game.playerCountryName} benefits from a new growth wave.`, 2)
+          createMapEffect(growthEventId, game.tick, "industry", game.playerCountryId, `${game.playerCountryName} benefits from a new growth wave.`, 2),
+          ...growthCountries.map((country) => (
+            createMapEffect(growthEventId, game.tick, "industry", country.id, `${country.name} expands production capacity.`, 2, {
+              persistent: true
+            })
+          ))
         ]
       }
     );
   }
 
   if (worstRelation && worstRelation.relationToPlayer <= -65 && game.tick % 5 === 0) {
+    const frontlineNeighbours = pickRegionalCountries(game, worstRelation.id, 2);
+    const conflictEventId = `strategic-conflict-${game.id}-${game.tick}`;
     return createEvent(
       game,
       "major_conflict",
@@ -467,8 +515,16 @@ function simulateNaturalDynamics(game: GameState): GameEvent | null {
         factionLabel: worstRelation.bloc,
         mapChangeSummary: "Military pressure rises and diplomacy becomes more brittle.",
         mapEffects: [
-          createMapEffect(`strategic-conflict-${game.id}-${game.tick}`, game.tick, "army", worstRelation.id, `${worstRelation.name} mobilizes around a confrontation.`, 3),
-          createMapEffect(`strategic-conflict-${game.id}-${game.tick}`, game.tick, "crisis", worstRelation.id, `${worstRelation.name} becomes a confrontation hotspot.`, 2)
+          createMapEffect(conflictEventId, game.tick, "army", worstRelation.id, `${worstRelation.name} mobilizes around a confrontation.`, 3),
+          createMapEffect(conflictEventId, game.tick, "crisis", worstRelation.id, `${worstRelation.name} becomes a confrontation hotspot.`, 2),
+          createMapEffect(conflictEventId, game.tick, "army", game.playerCountryId, `${game.playerCountryName} mirrors mobilization against ${worstRelation.name}.`, 2, {
+            sourceCountryId: worstRelation.id
+          }),
+          ...frontlineNeighbours.map((country) => (
+            createMapEffect(conflictEventId, game.tick, "fortification", country.id, `${country.name} reinforces defensive lines amid confrontation.`, 2, {
+              sourceCountryId: worstRelation.id
+            })
+          ))
         ]
       }
     );
@@ -498,7 +554,9 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
         tension: country.tension,
         stability: country.stability,
         industry: country.industry,
-        army: country.army
+        army: country.army,
+        fortification: country.fortification,
+        unrest: country.unrest
       }
     ])
   );
@@ -570,6 +628,24 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
       delta: country.army - (baselineById.get(country.id)?.army ?? country.army)
     }))
     .sort((a, b) => b.delta - a.delta)[0];
+  const fortificationDeltaCountry = [...game.countries]
+    .map((country) => ({
+      country,
+      delta: country.fortification - (baselineById.get(country.id)?.fortification ?? country.fortification)
+    }))
+    .sort((a, b) => b.delta - a.delta)[0];
+  const stabilityDropCountry = [...game.countries]
+    .map((country) => ({
+      country,
+      delta: country.stability - (baselineById.get(country.id)?.stability ?? country.stability)
+    }))
+    .sort((a, b) => a.delta - b.delta)[0];
+  const unrestDeltaCountry = [...game.countries]
+    .map((country) => ({
+      country,
+      delta: country.unrest - (baselineById.get(country.id)?.unrest ?? country.unrest)
+    }))
+    .sort((a, b) => b.delta - a.delta)[0];
 
   const emergentMapEffects: MapEffect[] = [];
   if (tensionDeltaCountry && tensionDeltaCountry.delta >= 2) {
@@ -606,6 +682,42 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
         armyDeltaCountry.country.id,
         `${armyDeltaCountry.country.name} increased active military posture.`,
         Math.min(3, armyDeltaCountry.delta + 1)
+      )
+    );
+  }
+  if (fortificationDeltaCountry && fortificationDeltaCountry.delta >= 1) {
+    emergentMapEffects.push(
+      createMapEffect(
+        roundEvent.id,
+        game.tick,
+        "fortification",
+        fortificationDeltaCountry.country.id,
+        `${fortificationDeltaCountry.country.name} reinforced static defenses.`,
+        Math.min(3, fortificationDeltaCountry.delta + 1)
+      )
+    );
+  }
+  if (stabilityDropCountry && stabilityDropCountry.delta <= -2) {
+    emergentMapEffects.push(
+      createMapEffect(
+        roundEvent.id,
+        game.tick,
+        "crisis",
+        stabilityDropCountry.country.id,
+        `${stabilityDropCountry.country.name} experienced a sharp stability drop.`,
+        Math.min(3, Math.abs(stabilityDropCountry.delta))
+      )
+    );
+  }
+  if (unrestDeltaCountry && unrestDeltaCountry.delta >= 2) {
+    emergentMapEffects.push(
+      createMapEffect(
+        roundEvent.id,
+        game.tick,
+        "stability",
+        unrestDeltaCountry.country.id,
+        `${unrestDeltaCountry.country.name} faces unrest-driven governance stress.`,
+        Math.min(3, unrestDeltaCountry.delta)
       )
     );
   }

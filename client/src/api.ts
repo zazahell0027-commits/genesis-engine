@@ -159,11 +159,18 @@ export async function sendDiplomacy(
   return parseJson<DiplomacyExchange>(response);
 }
 
-export async function getAdvisor(gameId: string): Promise<AdvisorResponse> {
+export async function getAdvisor(
+  gameId: string,
+  options?: { snapshotId?: string; prompt?: string }
+): Promise<AdvisorResponse> {
   const response = await fetch(`${API_BASE_URL}/game/advisor`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameId })
+    body: JSON.stringify({
+      gameId,
+      snapshotId: options?.snapshotId,
+      prompt: options?.prompt
+    })
   });
 
   return parseJson<AdvisorResponse>(response);

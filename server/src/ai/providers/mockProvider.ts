@@ -100,12 +100,21 @@ export class MockProvider implements AIProvider {
     const latest = input.latestEventText
       ? `Latest event: ${input.latestEventText}.`
       : "No major event reported yet.";
+    const queuedOrders = input.queuedOrdersText ? `Queued orders: ${input.queuedOrdersText}.` : "No queued orders.";
+    const recentEvents = input.recentEventsText ? `Recent events: ${input.recentEventsText}.` : "";
+    const diplomacy = input.diplomacyContextText ? `Diplomacy: ${input.diplomacyContextText}.` : "";
+    const question = input.advisorQuestion ? `Focus question: ${input.advisorQuestion}.` : "";
 
     return [
-      `${input.worldName} | scenario ${input.scenarioId} | year ${input.year}.`,
+      `${input.worldName} | scenario ${input.scenarioId} | date ${input.dateLabel}.`,
       `Tick ${input.tick}: world is ${tone}, stability ${input.avgStability}, wealth ${input.avgRichness}.`,
       `Action points ${input.actionPoints}/${input.maxActionPoints}. Factions: ${input.factionsText}.`,
-      latest
+      input.playerStateText ? `Player state: ${input.playerStateText}.` : "",
+      queuedOrders,
+      diplomacy,
+      recentEvents,
+      latest,
+      question
     ].join(" ");
   }
 
@@ -118,14 +127,23 @@ export class MockProvider implements AIProvider {
   }
 
   async generateDiplomacyReply(input: DiplomacyReplyInput): Promise<DiplomacyReply> {
-    return fallbackDiplomacy(input);
+    const base = fallbackDiplomacy(input);
+    if (!input.recentConversationText && !input.worldPressureText) {
+      return base;
+    }
+
+    return {
+      ...base,
+      reply: `${base.reply} ${input.worldPressureText ? `Context: ${input.worldPressureText}` : ""}`.trim()
+    };
   }
 
   async generateRoundNarrative(input: RoundNarrativeInput): Promise<RoundNarrative> {
+    const extraPressure = [input.recentEventsText, input.countryPulseText].filter((value) => Boolean(value)).join(" ");
     return {
       type: input.avgTension >= 66 ? "major_crisis" : input.appliedOrders > 0 ? "order" : "system",
       title: input.avgTension >= 66 ? "Regional Pressure Rises" : input.appliedOrders > 0 ? "Orders Reshape the Balance" : "Round Resolved",
-      description: `${input.playerCountryName} advances from ${input.fromDateLabel} to ${input.toDateLabel}. ${input.worldPressureText} ${input.ordersText}`.trim(),
+      description: `${input.playerCountryName} advances from ${input.fromDateLabel} to ${input.toDateLabel}. ${input.worldPressureText} ${input.ordersText} ${extraPressure}`.trim(),
       mapChangeSummary: input.avgTension >= 66
         ? "Tensions spread across the map and multiple actors harden their posture."
         : input.appliedOrders > 0
