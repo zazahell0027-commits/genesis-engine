@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import type { CountryState, PresetSummary } from "@genesis/shared";
+import React, { useMemo, useRef, useState } from "react";
+import type { CountryState, MapEffect, PresetSummary } from "@genesis/shared";
 import rawWorldGeo from "../assets/world_countries_slim.json";
 
 type ViewBox = {
@@ -13,6 +13,8 @@ type Props = {
   countries: CountryState[];
   preset: PresetSummary;
   selectedCountryId: string | null;
+  mapEffects?: MapEffect[];
+  highlightedCountryIds?: string[];
   onSelectCountry: (countryId: string) => void;
 };
 
@@ -51,21 +53,40 @@ type Tooltip = {
   subtitle: string;
 };
 
+type EffectMarker = {
+  id: string;
+  kind: MapEffect["kind"];
+  countryId: string;
+  sourceCountryId?: string;
+  label: string;
+  intensity: number;
+  x: number;
+  y: number;
+};
+
 const geoData = rawWorldGeo as GeoFeatureCollection;
 const DEFAULT_VIEWBOX: ViewBox = { x: 0, y: 0, width: 100, height: 50 };
-const PASTEL_PALETTE = [
-  "#cda28c",
-  "#b7c992",
-  "#ead772",
-  "#ceb48a",
-  "#c8afe0",
-  "#d9a690",
-  "#d5de8a",
-  "#b4d2da",
-  "#caa777",
-  "#a9c29a",
-  "#d2b59d",
-  "#c7d89e"
+const COUNTRY_PALETTE = [
+  "#c9b49a",
+  "#b3c08f",
+  "#d8c58e",
+  "#bfc9a2",
+  "#d4baa7",
+  "#b9c2ce",
+  "#ccb4d4",
+  "#c8bf97",
+  "#aebfa8",
+  "#d0b09c",
+  "#bac6b0",
+  "#c6baa3"
+];
+const MARKER_OFFSETS = [
+  { x: -1.05, y: -0.7 },
+  { x: 1.05, y: -0.7 },
+  { x: -1.05, y: 0.75 },
+  { x: 1.05, y: 0.75 },
+  { x: 0, y: -1.2 },
+  { x: 0, y: 1.2 }
 ];
 
 function normalize(value: string): string {
@@ -161,9 +182,20 @@ function tint(hex: string, amount: number): string {
 }
 
 function countryFill(country: CountryState, preset: PresetSummary): string {
-  const base = PASTEL_PALETTE[hash(`${preset.id}:${country.id}`) % PASTEL_PALETTE.length] ?? "#c7d2fe";
-  const volatility = Math.round((country.tension - 50) / 11);
-  return tint(base, volatility);
+  const base = COUNTRY_PALETTE[hash(`${preset.id}:${country.id}`) % COUNTRY_PALETTE.length] ?? "#c7d2fe";
+  const pressure = Math.round((country.tension - 50) / 4) + country.unrest;
+  const production = Math.round((country.industry - 5) / 2);
+  const defense = Math.round((country.fortification - 4) / 2);
+  return tint(base, pressure * 2 + production - defense);
+}
+
+function effectGlyph(kind: MapEffect["kind"]): string {
+  if (kind === "army") return "A";
+  if (kind === "fortification") return "F";
+  if (kind === "industry") return "I";
+  if (kind === "stability") return "S";
+  if (kind === "diplomacy") return "D";
+  return "!";
 }
 
 const FEATURES: Feature[] = geoData.features
@@ -184,20 +216,82 @@ const FEATURES: Feature[] = geoData.features
   })
   .filter((item): item is Feature => Boolean(item));
 
-export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCountry }: Props): React.JSX.Element {
+export function WorldGeoMap({
+  countries,
+  preset,
+  selectedCountryId,
+  mapEffects,
+  highlightedCountryIds,
+  onSelectCountry
+}: Props): React.JSX.Element {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; viewBox: ViewBox } | null>(null);
   const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEWBOX);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
 
-  const countriesById = new Map(countries.map((country) => [country.id, country]));
+  const countriesById = useMemo(() => new Map(countries.map((country) => [country.id, country])), [countries]);
+  const featuresByCountry = useMemo(() => new Map(FEATURES.map((feature) => [feature.countryId, feature])), []);
   const selectedCountry = selectedCountryId ? countriesById.get(selectedCountryId) ?? null : null;
+  const highlightedSet = useMemo(() => new Set(highlightedCountryIds ?? []), [highlightedCountryIds]);
+  const resolvedEffects = mapEffects ?? [];
   const labelFeatures = FEATURES
     .map((feature) => ({ feature, country: countriesById.get(feature.countryId) }))
     .filter((item): item is { feature: Feature; country: CountryState } => Boolean(item.country))
     .sort((a, b) => b.country.power - a.country.power)
-    .filter((item) => item.feature.bbox.width > 3.9 && item.feature.bbox.height > 1.2)
-    .slice(0, 10);
+    .filter((item) => item.feature.bbox.width > 4.6 && item.feature.bbox.height > 1.4)
+    .slice(0, 9);
+
+  const effectMarkers = useMemo(() => {
+    const grouped = new Map<string, MapEffect[]>();
+
+    for (const effect of resolvedEffects) {
+      const feature = featuresByCountry.get(effect.countryId);
+      if (!feature) continue;
+      const key = `${effect.countryId}:${effect.kind}`;
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(effect);
+      grouped.set(key, bucket);
+    }
+
+    return [...grouped.entries()].map(([key, effects]) => {
+      const effect = effects[effects.length - 1];
+      const feature = featuresByCountry.get(effect.countryId);
+      const offset = MARKER_OFFSETS[hash(key) % MARKER_OFFSETS.length] ?? { x: 0, y: 0 };
+      const intensity = effects.reduce((sum, entry) => sum + entry.intensity, 0);
+      return {
+        id: key,
+        kind: effect.kind,
+        countryId: effect.countryId,
+        sourceCountryId: effect.sourceCountryId,
+        label: effect.label,
+        intensity,
+        x: (feature?.centroid.x ?? 0) + offset.x * 0.37,
+        y: (feature?.centroid.y ?? 0) + offset.y * 0.37
+      } satisfies EffectMarker;
+    });
+  }, [resolvedEffects, featuresByCountry]);
+
+  const frontlineLinks = useMemo(() => {
+    const links = new Map<string, { from: Feature; to: Feature; intensity: number }>();
+
+    for (const effect of resolvedEffects) {
+      if (!effect.sourceCountryId || effect.sourceCountryId === effect.countryId) continue;
+      if (effect.kind !== "army" && effect.kind !== "crisis" && effect.kind !== "fortification") continue;
+
+      const from = featuresByCountry.get(effect.sourceCountryId);
+      const to = featuresByCountry.get(effect.countryId);
+      if (!from || !to) continue;
+      const key = `${from.countryId}->${to.countryId}`;
+      const current = links.get(key);
+      if (current) {
+        current.intensity = Math.max(current.intensity, effect.intensity);
+      } else {
+        links.set(key, { from, to, intensity: effect.intensity });
+      }
+    }
+
+    return [...links.values()];
+  }, [resolvedEffects, featuresByCountry]);
 
   function toLocalPosition(clientX: number, clientY: number): { x: number; y: number } | null {
     const rect = wrapperRef.current?.getBoundingClientRect();
@@ -284,6 +378,13 @@ export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCoun
         </button>
       </div>
 
+      <div className="world-map-legend">
+        <span className="legend-item"><i className="legend-dot kind-army" /> Troops</span>
+        <span className="legend-item"><i className="legend-dot kind-fortification" /> Forts</span>
+        <span className="legend-item"><i className="legend-dot kind-industry" /> Industry</span>
+        <span className="legend-item"><i className="legend-dot kind-crisis" /> Crisis</span>
+      </div>
+
       <div className="world-map-wrap" ref={wrapperRef}>
         <svg
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
@@ -324,9 +425,22 @@ export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCoun
           <rect x="0" y="0" width="100" height="50" filter="url(#oceanTexture)" />
           <rect x="0" y="0" width="100" height="50" fill="url(#oceanBloom)" opacity="0.24" />
 
+          {frontlineLinks.map((line, index) => (
+            <line
+              key={`frontline-${line.from.countryId}-${line.to.countryId}-${index}`}
+              x1={line.from.centroid.x}
+              y1={line.from.centroid.y}
+              x2={line.to.centroid.x}
+              y2={line.to.centroid.y}
+              className="frontline-link"
+              style={{ strokeWidth: Math.min(0.24, 0.08 + line.intensity * 0.02) }}
+            />
+          ))}
+
           {FEATURES.map((feature) => {
             const country = countriesById.get(feature.countryId);
             const isSelected = selectedCountryId === feature.countryId;
+            const isImpacted = highlightedSet.has(feature.countryId);
 
             return (
               <path
@@ -334,8 +448,8 @@ export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCoun
                 d={feature.path}
                 fill={country ? countryFill(country, preset) : "#b6d0dc"}
                 stroke={isSelected ? "#fffdf4" : preset.mapPalette.landStroke}
-                strokeWidth={isSelected ? 0.32 : 0.16}
-                className={`country-shape${country ? " active" : ""}${isSelected ? " is-selected" : ""}`}
+                strokeWidth={isSelected ? 0.34 : 0.16}
+                className={`country-shape${country ? " active" : ""}${isSelected ? " is-selected" : ""}${isImpacted ? " has-impact" : ""}`}
                 onClick={() => {
                   if (!country) return;
                   onSelectCountry(country.id);
@@ -350,13 +464,13 @@ export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCoun
                     x: point.x,
                     y: point.y,
                     title: country.name,
-                    subtitle: `${country.descriptor} • Power ${country.power} • Tension ${country.tension}`
+                    subtitle: `${country.descriptor} | Power ${country.power} | Army ${country.army} | Industry ${country.industry}`
                   });
                 }}
               >
                 <title>
                   {country
-                    ? `${country.name} | ${country.descriptor} | Power ${country.power} | Stability ${country.stability}`
+                    ? `${country.name} | ${country.descriptor} | Power ${country.power} | Army ${country.army} | Industry ${country.industry} | Fort ${country.fortification}`
                     : feature.name}
                 </title>
               </path>
@@ -364,7 +478,7 @@ export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCoun
           })}
 
           {labelFeatures.map(({ feature, country }) => {
-            const fontSize = Math.max(0.78, Math.min(2.3, feature.bbox.width * 0.11));
+            const fontSize = Math.max(0.66, Math.min(1.8, feature.bbox.width * 0.08));
             return (
               <text
                 key={`label-${feature.id}`}
@@ -376,6 +490,33 @@ export function WorldGeoMap({ countries, preset, selectedCountryId, onSelectCoun
               >
                 {country.name.toUpperCase()}
               </text>
+            );
+          })}
+
+          {effectMarkers.map((marker) => {
+            const radius = Math.max(0.33, Math.min(0.68, 0.29 + marker.intensity * 0.05));
+            return (
+              <g
+                key={marker.id}
+                className={`map-effect-marker kind-${marker.kind}`}
+                transform={`translate(${marker.x.toFixed(3)} ${marker.y.toFixed(3)})`}
+                onMouseMove={(event) => {
+                  const point = toLocalPosition(event.clientX, event.clientY);
+                  if (!point) return;
+                  const countryName = countriesById.get(marker.countryId)?.name ?? marker.countryId;
+                  setTooltip({
+                    x: point.x,
+                    y: point.y,
+                    title: countryName,
+                    subtitle: marker.label
+                  });
+                }}
+              >
+                <circle r={radius} />
+                <text textAnchor="middle" dominantBaseline="central">
+                  {effectGlyph(marker.kind)}
+                </text>
+              </g>
             );
           })}
         </svg>

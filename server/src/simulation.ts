@@ -126,8 +126,8 @@ function buildOrderMapEffects(game: GameState, eventId: string, order: TurnOrder
 
   if (order.kind === "attack" || order.kind === "military") {
     return [
-      createMapEffect(eventId, game.tick, "army", playerCountryId, `${playerName} moves troops toward ${targetName}.`, 3, {
-        sourceCountryId: order.targetCountryId
+      createMapEffect(eventId, game.tick, "army", order.targetCountryId, `${playerName} moves troops toward ${targetName}.`, 3, {
+        sourceCountryId: playerCountryId
       }),
       createMapEffect(eventId, game.tick, "crisis", order.targetCountryId, `${targetName} becomes an active frontline.`, 3, {
         sourceCountryId: playerCountryId
@@ -491,6 +491,17 @@ function loopsForStep(step: JumpStep): number {
 function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null {
   const queued = [...game.queuedOrders];
   game.queuedOrders = [];
+  const baselineById = new Map(
+    game.countries.map((country) => [
+      country.id,
+      {
+        tension: country.tension,
+        stability: country.stability,
+        industry: country.industry,
+        army: country.army
+      }
+    ])
+  );
 
   const highlights: string[] = [];
   const eventIds: string[] = [];
@@ -540,6 +551,67 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
       mapChangeSummary: "The world map has been updated for the new round."
     }
   );
+
+  const tensionDeltaCountry = [...game.countries]
+    .map((country) => ({
+      country,
+      delta: country.tension - (baselineById.get(country.id)?.tension ?? country.tension)
+    }))
+    .sort((a, b) => b.delta - a.delta)[0];
+  const industryDeltaCountry = [...game.countries]
+    .map((country) => ({
+      country,
+      delta: country.industry - (baselineById.get(country.id)?.industry ?? country.industry)
+    }))
+    .sort((a, b) => b.delta - a.delta)[0];
+  const armyDeltaCountry = [...game.countries]
+    .map((country) => ({
+      country,
+      delta: country.army - (baselineById.get(country.id)?.army ?? country.army)
+    }))
+    .sort((a, b) => b.delta - a.delta)[0];
+
+  const emergentMapEffects: MapEffect[] = [];
+  if (tensionDeltaCountry && tensionDeltaCountry.delta >= 2) {
+    emergentMapEffects.push(
+      createMapEffect(
+        roundEvent.id,
+        game.tick,
+        "crisis",
+        tensionDeltaCountry.country.id,
+        `${tensionDeltaCountry.country.name} saw a rise in internal pressure this round.`,
+        Math.min(3, tensionDeltaCountry.delta)
+      )
+    );
+  }
+  if (industryDeltaCountry && industryDeltaCountry.delta >= 1) {
+    emergentMapEffects.push(
+      createMapEffect(
+        roundEvent.id,
+        game.tick,
+        "industry",
+        industryDeltaCountry.country.id,
+        `${industryDeltaCountry.country.name} improved industrial output.`,
+        Math.min(3, industryDeltaCountry.delta + 1),
+        { persistent: true }
+      )
+    );
+  }
+  if (armyDeltaCountry && armyDeltaCountry.delta >= 1) {
+    emergentMapEffects.push(
+      createMapEffect(
+        roundEvent.id,
+        game.tick,
+        "army",
+        armyDeltaCountry.country.id,
+        `${armyDeltaCountry.country.name} increased active military posture.`,
+        Math.min(3, armyDeltaCountry.delta + 1)
+      )
+    );
+  }
+  if (emergentMapEffects.length > 0) {
+    roundEvent.mapEffects = emergentMapEffects;
+  }
 
   pushEvent(game, roundEvent);
   eventIds.push(roundEvent.id);
@@ -762,6 +834,44 @@ export function sendDiplomacyMessage(
     game.diplomacyLog = game.diplomacyLog.slice(0, 50);
   }
 
+  const diplomacyEffects: MapEffect[] = [
+    createMapEffect(
+      `${game.id}-dip-${game.tick}`,
+      game.tick,
+      "diplomacy",
+      target.id,
+      `${game.playerCountryName} opened diplomatic signaling with ${target.name}.`,
+      resolved.stance === "friendly" ? 3 : 2,
+      { sourceCountryId: game.playerCountryId }
+    )
+  ];
+  if (resolved.stance === "hostile") {
+    diplomacyEffects.push(
+      createMapEffect(
+        `${game.id}-dip-${game.tick}`,
+        game.tick,
+        "crisis",
+        target.id,
+        `${target.name} hardened posture after the exchange.`,
+        2,
+        { sourceCountryId: game.playerCountryId }
+      )
+    );
+  }
+  if (resolved.stance === "friendly") {
+    diplomacyEffects.push(
+      createMapEffect(
+        `${game.id}-dip-${game.tick}`,
+        game.tick,
+        "stability",
+        target.id,
+        `${target.name} shows signs of diplomatic stabilization.`,
+        2,
+        { persistent: true }
+      )
+    );
+  }
+
   pushEvent(
     game,
     createEvent(
@@ -776,7 +886,8 @@ export function sendDiplomacyMessage(
         mapChangeSummary:
           resolved.stance === "hostile" ? "Relations deteriorated." :
             resolved.stance === "friendly" ? "Relations improved." :
-              "Relations remain uncertain."
+              "Relations remain uncertain.",
+        mapEffects: diplomacyEffects
       }
     )
   );

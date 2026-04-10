@@ -176,6 +176,23 @@ export function GameRoutePage(props: {
     .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
     .filter((event): event is NonNullable<typeof event> => Boolean(event));
   const activeEvent = windowEvents.find((event) => event.id === activeEventId) ?? windowEvents[0] ?? null;
+  const snapshotEvents = snapshot
+    ? snapshot.eventIds
+      .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
+      .filter((event): event is NonNullable<typeof event> => Boolean(event))
+    : [];
+  const mapContextEvents = snapshot
+    ? snapshotEvents
+    : windowEvents.length > 0
+      ? windowEvents
+      : activeEvent
+        ? [activeEvent]
+        : [];
+  const activeEventEffects = activeEvent?.mapEffects ?? [];
+  const mapEffects = mapContextEvents.flatMap((event) => event.mapEffects ?? []);
+  const highlightedCountryIds = [...new Set(
+    mapEffects.flatMap((effect) => [effect.countryId, effect.sourceCountryId]).filter((id): id is string => Boolean(id))
+  )];
   const activeConversation = game.diplomacyLog.filter((entry) => entry.targetCountryId === diplomacyTargetId);
   const diplomacyTarget = game.countries.find((country) => country.id === diplomacyTargetId) ?? null;
   const searchMatches = activeCountries.filter((country) => normalize(country.name).includes(normalize(searchQuery))).slice(0, 14);
@@ -377,6 +394,8 @@ export function GameRoutePage(props: {
           countries={activeCountries}
           preset={game.preset}
           selectedCountryId={selectedCountry?.id ?? null}
+          mapEffects={mapEffects}
+          highlightedCountryIds={highlightedCountryIds}
           onSelectCountry={(countryId) => {
             setSelectedCountryId(countryId);
             setSearchQuery("");
@@ -452,6 +471,18 @@ export function GameRoutePage(props: {
                 </div>
                 <h3>{activeEvent.title}</h3>
                 <p className="event-description">{activeEvent.description}</p>
+                {activeEventEffects.length > 0 ? (
+                  <div className="event-impact-list">
+                    {activeEventEffects.slice(0, 8).map((effect) => (
+                      <article key={effect.id} className={`event-impact-chip kind-${effect.kind}`}>
+                        <strong>{effect.kind.toUpperCase()}</strong>
+                        <span>{effect.label}</span>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="event-impact-empty">No direct visual map impact is recorded for this event.</div>
+                )}
                 <button type="button" className="secondary-button map-change-button" onClick={handleMapChangeView}>
                   <MapIcon />
                   <span>View Map Changes</span>
@@ -532,6 +563,7 @@ export function GameRoutePage(props: {
                 <strong>{selectedCountry.name}</strong>
                 <span>{selectedCountry.descriptor}</span>
                 <span>{`Power ${selectedCountry.power} | Stability ${selectedCountry.stability} | Tension ${selectedCountry.tension}`}</span>
+                <span>{`Army ${selectedCountry.army} | Industry ${selectedCountry.industry} | Fortification ${selectedCountry.fortification} | Unrest ${selectedCountry.unrest}`}</span>
               </div>
             )}
 

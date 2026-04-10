@@ -1235,6 +1235,113 @@ svg {
   color: rgba(255, 255, 255, 0.74);
 }
 
+.world-map-legend {
+  position: absolute;
+  top: 1.05rem;
+  left: 4.9rem;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(29, 34, 48, 0.11);
+  box-shadow: 0 14px 30px rgba(19, 24, 38, 0.14);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.24rem 0.44rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.64);
+  color: #364052;
+  font-size: 0.73rem;
+  font-weight: 600;
+}
+
+.legend-dot {
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.legend-dot.kind-army {
+  background: #ff646f;
+}
+
+.legend-dot.kind-fortification {
+  background: #8f6bff;
+}
+
+.legend-dot.kind-industry {
+  background: #f5b348;
+}
+
+.legend-dot.kind-crisis {
+  background: #ff9f3f;
+}
+
+.frontline-link {
+  stroke: rgba(236, 78, 103, 0.74);
+  stroke-dasharray: 0.48 0.24;
+  stroke-linecap: round;
+  fill: none;
+  pointer-events: none;
+}
+
+.country-shape.has-impact {
+  filter: drop-shadow(0 0 0.22rem rgba(255, 255, 255, 0.65));
+  stroke: rgba(255, 250, 215, 0.94);
+  stroke-width: 0.25;
+}
+
+.map-effect-marker {
+  pointer-events: auto;
+}
+
+.map-effect-marker circle {
+  stroke: rgba(255, 255, 255, 0.88);
+  stroke-width: 0.12;
+}
+
+.map-effect-marker text {
+  fill: rgba(255, 255, 255, 0.98);
+  font-size: 0.43rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(9, 12, 22, 0.6);
+  stroke-width: 0.08;
+}
+
+.map-effect-marker.kind-army circle {
+  fill: rgba(239, 71, 93, 0.9);
+}
+
+.map-effect-marker.kind-fortification circle {
+  fill: rgba(132, 94, 255, 0.9);
+}
+
+.map-effect-marker.kind-industry circle {
+  fill: rgba(242, 173, 74, 0.9);
+}
+
+.map-effect-marker.kind-stability circle {
+  fill: rgba(71, 177, 120, 0.9);
+}
+
+.map-effect-marker.kind-diplomacy circle {
+  fill: rgba(93, 160, 255, 0.9);
+}
+
+.map-effect-marker.kind-crisis circle {
+  fill: rgba(242, 122, 49, 0.92);
+}
+
 .overlay-panel,
 .timeline-panel {
   position: absolute;
@@ -1413,6 +1520,67 @@ svg {
   line-height: 1.4;
 }
 
+.event-impact-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+}
+
+.event-impact-chip {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 0.95rem;
+  padding: 0.62rem 0.7rem;
+}
+
+.event-impact-chip strong {
+  display: block;
+  margin-bottom: 0.16rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+.event-impact-chip span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.event-impact-chip.kind-army strong {
+  color: #e23d62;
+}
+
+.event-impact-chip.kind-fortification strong {
+  color: #7a4ded;
+}
+
+.event-impact-chip.kind-industry strong {
+  color: #ca7d1d;
+}
+
+.event-impact-chip.kind-stability strong {
+  color: #348f5e;
+}
+
+.event-impact-chip.kind-diplomacy strong {
+  color: #3f69f3;
+}
+
+.event-impact-chip.kind-crisis strong {
+  color: #d17021;
+}
+
+.event-impact-empty {
+  margin-top: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px dashed rgba(32, 37, 56, 0.2);
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .quick-action-card,
 .order-card {
   display: flex;
@@ -1572,6 +1740,14 @@ svg {
     right: 0.75rem;
   }
 
+  .world-map-legend {
+    top: 4.85rem;
+    left: 0.75rem;
+    right: 4.2rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
   .timeline-toggle-button {
     top: 4.8rem;
     right: 0.75rem;
@@ -1601,5 +1777,9 @@ svg {
 
   .world-map-tools {
     right: 0.75rem;
+  }
+
+  .event-impact-list {
+    grid-template-columns: 1fr;
   }
 }

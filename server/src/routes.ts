@@ -187,7 +187,7 @@ function describeWorldPressure(gameId: string): string {
   return `Global stability ${game.indicators.avgStability}, wealth ${game.indicators.avgWealth}, tension ${game.indicators.avgTension}, conflict ${game.indicators.conflictLevel}.`;
 }
 
-function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AIProvider["generateRoundNarrative"]>>) {
+function sanitizeRoundNarrativeLegacy(gameId: string, narrative: Awaited<ReturnType<AIProvider["generateRoundNarrative"]>>) {
   const game = getGame(gameId);
   if (!game) return narrative;
 
@@ -208,6 +208,78 @@ function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AI
     ...narrative,
     mapChangeSummary: cleanedMapChange,
     highlights: cleanedHighlights.length > 0 ? cleanedHighlights : narrative.highlights
+  };
+}
+
+function normalizeNarrativeText(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[*`#_]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikePromptDump(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return [
+    "event card",
+    "orders summary",
+    "applied orders",
+    "world pressure",
+    "global stability",
+    "latest event in log",
+    "averages",
+    "from:",
+    "to:"
+  ].some((token) => normalized.includes(token));
+}
+
+function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AIProvider["generateRoundNarrative"]>>) {
+  const game = getGame(gameId);
+  if (!game) return narrative;
+
+  const fallbackTitle =
+    narrative.type === "major_conflict" || narrative.type === "major_crisis"
+      ? "Regional Tension Intensifies"
+      : "Round Update";
+  const fallbackDescription = `${game.playerCountryName} advances into ${game.displayDate} with ${game.lastRoundSummary?.appliedOrders ?? 0} resolved orders. Global stability is ${game.indicators.avgStability} and tension is ${game.indicators.avgTension}.`;
+  const fallbackMapSummary =
+    narrative.type === "major_conflict" || narrative.type === "major_crisis"
+      ? "Frontline pressure has increased, with visible military and crisis activity."
+      : "Recent actions adjusted military posture, diplomacy, and domestic pressure across the map.";
+
+  const cleanedTitle = normalizeNarrativeText(narrative.title);
+  const cleanedDescription = normalizeNarrativeText(narrative.description);
+  const cleanedMapInput = normalizeNarrativeText(narrative.mapChangeSummary);
+  const mergedForValidation = `${cleanedTitle} ${cleanedDescription} ${cleanedMapInput}`;
+  const shouldFallback = looksLikePromptDump(mergedForValidation) || cleanedDescription.length < 26;
+
+  const cleanedMapChange = /->|→|â†’|attack|defend/i.test(cleanedMapInput)
+    ? fallbackMapSummary
+    : cleanedMapInput.length > 0
+      ? cleanedMapInput
+      : fallbackMapSummary;
+
+  const cleanedHighlights = (narrative.highlights ?? [])
+    .map((line) => normalizeNarrativeText(line))
+    .filter((line) => line.length > 0 && line.length <= 180 && !looksLikePromptDump(line))
+    .map((line) => (
+      /->|→|â†’/.test(line)
+        ? `${game.playerCountryName} and its rivals adjusted posture after the latest orders.`
+        : line
+    ));
+
+  const fallbackHighlights = (game.lastRoundSummary?.highlights ?? [])
+    .map((line) => normalizeNarrativeText(line))
+    .filter((line) => line.length > 0)
+    .slice(0, 4);
+
+  return {
+    ...narrative,
+    title: shouldFallback ? fallbackTitle : (cleanedTitle || fallbackTitle),
+    description: shouldFallback ? fallbackDescription : (cleanedDescription || fallbackDescription),
+    mapChangeSummary: shouldFallback ? fallbackMapSummary : cleanedMapChange,
+    highlights: cleanedHighlights.length > 0 ? cleanedHighlights : (fallbackHighlights.length > 0 ? fallbackHighlights : narrative.highlights)
   };
 }
 
@@ -513,7 +585,10 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     game.tokenBalance = Number(Math.max(0.111, game.tokenBalance - 0.034).toFixed(3));
     saveGame(game);
 
-    const cleanedNarrative = narrative.trim().replace(/^["“]+|["”]+$/g, "");
+    const cleanedNarrative = narrative
+      .trim()
+      .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+      .replace(/\s+/g, " ");
     const response: AdvisorResponse = {
       provider: ai.providerName,
       narrative: `${monthLabel(game.month)} ${game.day}, ${game.year} | ${cleanedNarrative}`,
