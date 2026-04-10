@@ -1,10 +1,14 @@
-﻿import type {
+import type {
   AdvisorResponse,
   CountryDescriptor,
   DiplomacyExchange,
+  GameSessionSummary,
+  GameSetupOptions,
   GameState,
   JumpStep,
-  ScenarioDescriptor
+  PresetBrowserPayload,
+  PresetCategory,
+  QuickActionKind
 } from "@genesis/shared";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
@@ -25,21 +29,41 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function getScenarios(): Promise<ScenarioDescriptor[]> {
-  const response = await fetch(`${API_BASE_URL}/scenarios`);
-  return parseJson<ScenarioDescriptor[]>(response);
+export async function getPresetBrowser(): Promise<PresetBrowserPayload> {
+  const response = await fetch(`${API_BASE_URL}/presets`);
+  return parseJson<PresetBrowserPayload>(response);
 }
 
-export async function getCountries(scenarioId: string): Promise<CountryDescriptor[]> {
-  const response = await fetch(`${API_BASE_URL}/countries?scenarioId=${encodeURIComponent(scenarioId)}`);
+export async function getPresetCategories(): Promise<PresetCategory[]> {
+  const response = await fetch(`${API_BASE_URL}/presets/categories`);
+  return parseJson<PresetCategory[]>(response);
+}
+
+export async function getSetupOptions(presetId: string): Promise<GameSetupOptions> {
+  const response = await fetch(`${API_BASE_URL}/presets/${encodeURIComponent(presetId)}/setup`);
+  return parseJson<GameSetupOptions>(response);
+}
+
+export async function getCountries(presetId: string): Promise<CountryDescriptor[]> {
+  const response = await fetch(`${API_BASE_URL}/countries?presetId=${encodeURIComponent(presetId)}`);
   return parseJson<CountryDescriptor[]>(response);
 }
 
-export async function startGame(scenarioId: string, countryId: string): Promise<GameState> {
+export async function listGames(): Promise<GameSessionSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/games`);
+  return parseJson<GameSessionSummary[]>(response);
+}
+
+export async function startGame(input: {
+  presetId: string;
+  countryId: string;
+  difficulty: string;
+  aiQuality: string;
+}): Promise<GameState> {
   const response = await fetch(`${API_BASE_URL}/game/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scenarioId, countryId })
+    body: JSON.stringify(input)
   });
 
   return parseJson<GameState>(response);
@@ -55,6 +79,20 @@ export async function queueOrder(gameId: string, text: string): Promise<GameStat
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ gameId, text })
+  });
+
+  return parseJson<GameState>(response);
+}
+
+export async function queueQuickAction(
+  gameId: string,
+  targetCountryId: string,
+  kind: QuickActionKind
+): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}/game/quick-action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gameId, targetCountryId, kind })
   });
 
   return parseJson<GameState>(response);

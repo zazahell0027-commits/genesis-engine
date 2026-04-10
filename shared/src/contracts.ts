@@ -1,17 +1,39 @@
-﻿export type ScenarioId = "earth-2010";
+export type PresetId = string;
+export type PresetCategoryId =
+  | "historical"
+  | "alt-historical"
+  | "historical-fiction"
+  | "science-fiction"
+  | "fantasy";
 
-export type JumpStep = "week" | "month" | "quarter" | "year";
+export type DifficultyLevel = "Relaxed" | "Standard" | "Challenging";
+export type AIQuality = "Fast" | "Balanced" | "Premium";
+export type JumpStep = "week" | "month" | "six_months" | "year";
 
 export type GameEventType =
   | "system"
   | "order"
   | "diplomacy"
+  | "advisor"
   | "major_diplomacy"
   | "major_crisis"
   | "major_conflict"
   | "major_growth";
 
-export type TurnOrderKind = "stabilize" | "invest" | "pressure" | "military" | "diplomacy";
+export type TurnOrderKind =
+  | "stabilize"
+  | "invest"
+  | "pressure"
+  | "military"
+  | "attack"
+  | "defend"
+  | "diplomacy";
+
+export type QuickActionKind = "attack" | "defend" | "stabilize" | "invest";
+
+export type BadgeTone = "neutral" | "accent" | "warning";
+export type TimelineTone = "normal" | "major" | "crisis" | "diplomacy";
+export type MapEffectKind = "army" | "fortification" | "industry" | "stability" | "diplomacy" | "crisis";
 
 export type CountryDescriptor = {
   id: string;
@@ -19,12 +41,78 @@ export type CountryDescriptor = {
   continent: string;
 };
 
-export type ScenarioDescriptor = {
-  id: ScenarioId;
-  name: string;
+export type PresetDate = {
+  year: number;
+  month: number;
+  day: number;
+  label: string;
+};
+
+export type PresetStats = {
+  rounds: string;
+  games: string;
+  playlists?: string;
+  players?: string;
+};
+
+export type PresetSummary = {
+  id: PresetId;
+  title: string;
+  subtitle: string;
+  category: PresetCategoryId;
+  era: string;
+  coverImage: string;
+  bannerImage?: string;
+  startDate: PresetDate;
+  stats: PresetStats;
+  featured: boolean;
+  playable: boolean;
+  official: boolean;
+  creator: string;
+  accent: string;
+  mapPalette: {
+    oceanTop: string;
+    oceanBottom: string;
+    landStroke: string;
+    labelColor: string;
+  };
+  recommendedCountries: string[];
   description: string;
-  startYear: number;
-  startMonth: number;
+};
+
+export type ScenarioDescriptor = PresetSummary;
+
+export type PresetRail = {
+  id: string;
+  title: string;
+  subtitle: string;
+  presetIds: string[];
+};
+
+export type PresetCategory = {
+  id: PresetCategoryId | string;
+  title: string;
+  description: string;
+  eras: string[];
+};
+
+export type GameSetupOptions = {
+  presetId: PresetId;
+  difficultyOptions: DifficultyLevel[];
+  aiQualityOptions: AIQuality[];
+  defaultDifficulty: DifficultyLevel;
+  defaultAIQuality: AIQuality;
+  defaultCountryId: string;
+  recommendedCountries: string[];
+  featuredTips: string[];
+};
+
+export type QuickAction = {
+  id: string;
+  kind: QuickActionKind;
+  label: string;
+  description: string;
+  promptTemplate: string;
 };
 
 export type CountryState = {
@@ -36,6 +124,23 @@ export type CountryState = {
   stability: number;
   tension: number;
   relationToPlayer: number;
+  power: number;
+  army: number;
+  industry: number;
+  fortification: number;
+  unrest: number;
+  descriptor: string;
+};
+
+export type MapEffect = {
+  id: string;
+  kind: MapEffectKind;
+  countryId: string;
+  sourceCountryId?: string;
+  intensity: number;
+  label: string;
+  tick: number;
+  persistent?: boolean;
 };
 
 export type GameEvent = {
@@ -44,9 +149,15 @@ export type GameEvent = {
   tick: number;
   year: number;
   month: number;
+  day: number;
+  dateLabel: string;
   title: string;
   description: string;
+  locationLabel?: string;
+  factionLabel?: string;
+  mapChangeSummary?: string;
   countryId?: string;
+  mapEffects?: MapEffect[];
 };
 
 export type TurnOrder = {
@@ -63,6 +174,8 @@ export type DiplomacyExchange = {
   tick: number;
   year: number;
   month: number;
+  day: number;
+  dateLabel: string;
   targetCountryId: string;
   targetCountryName: string;
   message: string;
@@ -74,6 +187,8 @@ export type RoundSummary = {
   tick: number;
   year: number;
   month: number;
+  day: number;
+  displayDate: string;
   appliedOrders: number;
   highlights: string[];
 };
@@ -85,33 +200,122 @@ export type WorldIndicators = {
   conflictLevel: "Low" | "Medium" | "High";
 };
 
-export type GameState = {
+export type EventWindow = {
+  title: string;
+  rangeLabel: string;
+  activeEventId: string | null;
+  eventIds: string[];
+  startedTick: number;
+  endedTick: number;
+};
+
+export type TimelineEntry = {
   id: string;
-  scenarioId: ScenarioId;
-  scenarioName: string;
+  snapshotId: string;
+  tick: number;
+  displayDate: string;
+  title: string;
+  subtitle: string;
+  tone: TimelineTone;
+};
+
+export type RoundSnapshot = {
+  id: string;
+  tick: number;
   year: number;
   month: number;
+  day: number;
+  displayDate: string;
+  countries: CountryState[];
+  eventIds: string[];
+  summary: string;
+};
+
+export type NavBadge = {
+  id: string;
+  label: string;
+  value: string;
+  tone: BadgeTone;
+};
+
+export type GameUiState = {
+  activePanel: "none" | "actions" | "chats" | "advisor" | "events";
+  selectedCountryId: string | null;
+  viewedSnapshotId: string | null;
+};
+
+export type JumpOption = {
+  step: JumpStep;
+  label: string;
+};
+
+export type GameState = {
+  id: string;
+  presetId: PresetId;
+  preset: PresetSummary;
+  year: number;
+  month: number;
+  day: number;
   tick: number;
+  displayDate: string;
   playerCountryId: string;
   playerCountryName: string;
+  difficulty: DifficultyLevel;
+  aiQuality: AIQuality;
   actionPoints: number;
   maxActionPoints: number;
   countries: CountryState[];
+  selectedCountryId: string;
+  selectedCountryName: string;
   events: GameEvent[];
   queuedOrders: TurnOrder[];
   diplomacyLog: DiplomacyExchange[];
   lastRoundSummary?: RoundSummary;
   indicators: WorldIndicators;
+  quickActions: QuickAction[];
+  eventWindow: EventWindow;
+  timeline: TimelineEntry[];
+  snapshots: RoundSnapshot[];
+  tokenBalance: number;
+  availableJumpOptions: JumpOption[];
+  uiState: GameUiState;
+};
+
+export type PresetBrowserPayload = {
+  presets: PresetSummary[];
+  rails: PresetRail[];
+  categories: PresetCategory[];
+  navBadges: NavBadge[];
+};
+
+export type GameSessionSummary = {
+  id: string;
+  presetId: PresetId;
+  presetTitle: string;
+  coverImage: string;
+  playerCountryName: string;
+  displayDate: string;
+  tick: number;
+  lastUpdatedLabel: string;
+  accent: string;
 };
 
 export type CreateGameInput = {
-  scenarioId: ScenarioId;
+  presetId: PresetId;
   countryId: string;
+  difficulty: DifficultyLevel;
+  aiQuality: AIQuality;
 };
 
 export type QueueOrderInput = {
   gameId: string;
   text: string;
+};
+
+export type QuickActionInput = {
+  gameId: string;
+  targetCountryId: string;
+  kind: QuickActionKind;
 };
 
 export type RemoveOrderInput = {
@@ -136,4 +340,6 @@ export type AdvisorResponse = {
   tick: number;
   year: number;
   month: number;
+  day: number;
+  dateLabel: string;
 };
