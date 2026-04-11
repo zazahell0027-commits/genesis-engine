@@ -25,7 +25,7 @@ import {
   formatMoney
 } from "../components/Icons";
 
-type OverlayPanel = "events" | "actions" | "chats" | "search" | "menu";
+type OverlayPanel = "events" | "actions" | "chats" | "search" | "menu" | "none";
 type RightPanel = "advisor" | "timeline" | "none";
 type BusyAction = "order" | "quick-action" | "jump" | "major-event" | "diplomacy" | "advisor" | null;
 
@@ -146,6 +146,10 @@ export function GameRoutePage(props: {
   const [mapFocus, setMapFocus] = useState<MapFocus>({ countryIds: [], provinceIds: [], token: 0 });
   const busy = busyAction !== null;
 
+  function toggleLeftPanel(next: Exclude<OverlayPanel, "none">): void {
+    setPanel((current) => (current === next ? "none" : next));
+  }
+
   useEffect(() => {
     const safeGameId = gameId as string | undefined;
     if (!safeGameId) return;
@@ -187,6 +191,19 @@ export function GameRoutePage(props: {
   }, [gameId, onError, onTokenBalanceChange]);
 
   useEffect(() => () => onTokenBalanceChange(null), [onTokenBalanceChange]);
+
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      setPanel("none");
+      setRightPanel("none");
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
 
   async function applyGameUpdate(updated: GameState, nextPanel?: OverlayPanel): Promise<void> {
     setGame(updated);
@@ -451,7 +468,7 @@ export function GameRoutePage(props: {
   return (
     <main className="game-route">
       <div className="game-stage">
-        <button type="button" className="floating-corner-button" onClick={() => setPanel(panel === "menu" ? "actions" : "menu")}>
+        <button type="button" className="floating-corner-button" onClick={() => toggleLeftPanel("menu")}>
           <MenuIcon />
         </button>
 
@@ -482,7 +499,7 @@ export function GameRoutePage(props: {
           type="button"
           className="timeline-toggle-button"
           aria-label="Chronologie"
-          onClick={() => setRightPanel(rightPanel === "timeline" ? "advisor" : "timeline")}
+          onClick={() => setRightPanel(rightPanel === "timeline" ? "none" : "timeline")}
         >
           <CalendarIcon />
         </button>
@@ -517,13 +534,13 @@ export function GameRoutePage(props: {
         />
 
         <div className="floating-dock">
-          <button type="button" className={`dock-button${panel === "chats" ? " is-active" : ""}`} onClick={() => setPanel("chats")}>
+          <button type="button" className={`dock-button${panel === "chats" ? " is-active" : ""}`} onClick={() => toggleLeftPanel("chats")}>
             <ChatIcon />
           </button>
-          <button type="button" className={`dock-button${panel === "actions" ? " is-active" : ""}`} onClick={() => setPanel("actions")}>
+          <button type="button" className={`dock-button${panel === "actions" ? " is-active" : ""}`} onClick={() => toggleLeftPanel("actions")}>
             <SparkIcon />
           </button>
-          <button type="button" className={`dock-button${panel === "search" ? " is-active" : ""}`} onClick={() => setPanel("search")}>
+          <button type="button" className={`dock-button${panel === "search" ? " is-active" : ""}`} onClick={() => toggleLeftPanel("search")}>
             <SearchIcon />
           </button>
         </div>
@@ -571,7 +588,7 @@ export function GameRoutePage(props: {
                 <h2>{game.eventWindow.title}</h2>
                 <p>{game.eventWindow.rangeLabel}</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
             </div>
 
             {activeEvent ? (
@@ -632,7 +649,7 @@ export function GameRoutePage(props: {
                 <h2>Chronologie</h2>
                 <p>{snapshot ? "Lecture d'un snapshot historique" : "Rounds les plus recents"}</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setRightPanel("advisor")}>x</button>
+              <button type="button" className="close-button" onClick={() => setRightPanel("none")}>x</button>
             </div>
             <div className="timeline-list">
               {game.timeline.map((entry) => (
@@ -666,7 +683,7 @@ export function GameRoutePage(props: {
                 <h2>Actions</h2>
                 <p>{`${game.actionPoints}/${game.maxActionPoints} points d'action disponibles`}</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
             </div>
 
             {selectedCountry && (
@@ -744,7 +761,7 @@ export function GameRoutePage(props: {
                 <h2>Chats diplomatiques</h2>
                 <p>La diplomatie textuelle influe directement sur les rounds et les evenements.</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
             </div>
 
             <label className="field-block">
@@ -905,7 +922,7 @@ export function GameRoutePage(props: {
                 <h2>Recherche de pays</h2>
                 <p>Selectionnez rapidement un pays pour recentrer vos decisions.</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
             </div>
 
             <label className="field-block">
@@ -948,7 +965,7 @@ export function GameRoutePage(props: {
                 <h2>Menu avance</h2>
                 <p>Contexte de session, rythme temporel et navigation rapide.</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
             </div>
 
             <div className="menu-grid">

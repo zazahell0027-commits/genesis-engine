@@ -45,6 +45,15 @@
   color: #edf2ff;
 }
 
+.app-shell.is-game-route .events-panel > .overlay-heading,
+.app-shell.is-game-route .side-panel > .overlay-heading,
+.app-shell.is-game-route .search-panel > .overlay-heading,
+.app-shell.is-game-route .menu-panel > .overlay-heading,
+.app-shell.is-game-route .timeline-panel > .overlay-heading {
+  background: linear-gradient(180deg, rgba(16, 24, 44, 0.97), rgba(16, 24, 44, 0.86));
+  border-bottom: 1px solid rgba(137, 161, 233, 0.18);
+}
+
 .app-shell.is-game-route .overlay-heading h2,
 .app-shell.is-game-route .overlay-heading p,
 .app-shell.is-game-route .event-description,
@@ -52,6 +61,18 @@
 .app-shell.is-game-route .selected-country-card span,
 .app-shell.is-game-route .advisor-card p {
   color: rgba(227, 234, 255, 0.9);
+}
+
+.app-shell.is-game-route .close-button {
+  width: 2.2rem;
+  height: 2.2rem;
+  background: rgba(31, 44, 74, 0.9);
+  color: #edf2ff;
+  border: 1px solid rgba(137, 161, 233, 0.3);
+}
+
+.app-shell.is-game-route .close-button:hover {
+  background: rgba(48, 65, 107, 0.94);
 }
 
 .app-shell.is-game-route .close-button,
@@ -75,6 +96,28 @@
   box-shadow: 0 10px 22px rgba(108, 65, 220, 0.4);
 }
 
+.app-shell.is-game-route .field-block span {
+  color: rgba(205, 219, 255, 0.92);
+}
+
+.app-shell.is-game-route .field-block input,
+.app-shell.is-game-route .field-block select,
+.app-shell.is-game-route .large-textarea {
+  background: rgba(10, 16, 33, 0.78);
+  border-color: rgba(137, 161, 233, 0.3);
+  color: #edf2ff;
+}
+
+.app-shell.is-game-route .field-block input::placeholder,
+.app-shell.is-game-route .large-textarea::placeholder {
+  color: rgba(199, 214, 255, 0.58);
+}
+
+.app-shell.is-game-route .field-block select option {
+  background: #0f1a33;
+  color: #edf2ff;
+}
+
 .app-shell.is-game-route .events-panel h3 {
   font-family: "Cinzel", "Times New Roman", serif;
   letter-spacing: 0.02em;
@@ -90,6 +133,28 @@
   background: rgba(147, 108, 255, 0.2);
   border-color: rgba(166, 129, 255, 0.42);
   color: #f1e9ff;
+}
+
+.app-shell.is-game-route .floating-corner-button,
+.app-shell.is-game-route .floating-profile-button,
+.app-shell.is-game-route .dock-button,
+.app-shell.is-game-route .capsule-arrow,
+.app-shell.is-game-route .timeline-toggle-button {
+  width: 2.65rem;
+  height: 2.65rem;
+  background: rgba(15, 23, 43, 0.9);
+  border-color: rgba(137, 161, 233, 0.32);
+  color: #edf2ff;
+}
+
+.app-shell.is-game-route .jump-capsule {
+  background: rgba(14, 23, 43, 0.9);
+  border-color: rgba(137, 161, 233, 0.28);
+  color: #edf2ff;
+}
+
+.app-shell.is-game-route .jump-capsule-copy span {
+  color: rgba(205, 218, 255, 0.68);
 }
 
 .app-shell.is-game-route .legend-item {
