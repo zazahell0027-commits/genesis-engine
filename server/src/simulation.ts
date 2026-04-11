@@ -1,6 +1,7 @@
 import type {
   DiplomacyExchange,
   GameEvent,
+  MapArtifact,
   GameState,
   JumpStep,
   MapEffect,
@@ -65,6 +66,17 @@ function seededDelta(seed: string): number {
   return (hash(seed) % 5) - 2;
 }
 
+function uniqueIds(values: Array<string | undefined | null>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim().length > 0)))];
+}
+
+function focusCountryIdsFromEffects(effects: MapEffect[] | undefined): string[] {
+  if (!effects || effects.length === 0) return [];
+  return uniqueIds(
+    effects.flatMap((effect) => [effect.countryId, effect.sourceCountryId])
+  );
+}
+
 function createEvent(
   game: GameState,
   type: GameEvent["type"],
@@ -76,8 +88,17 @@ function createEvent(
     factionLabel?: string;
     mapChangeSummary?: string;
     mapEffects?: MapEffect[];
+    mapFocusCountryIds?: string[];
+    mapFocusProvinceIds?: string[];
   }
 ): GameEvent {
+  const mapEffects = options?.mapEffects
+    ?.map((effect) => ({ ...effect, layer: effect.layer ?? "effect" }));
+  const fallbackFocus = uniqueIds([
+    options?.countryId,
+    ...focusCountryIdsFromEffects(mapEffects)
+  ]);
+
   return {
     id: `${game.id}-evt-${game.tick}-${game.events.length + 1}`,
     type,
@@ -92,7 +113,9 @@ function createEvent(
     locationLabel: options?.locationLabel,
     factionLabel: options?.factionLabel,
     mapChangeSummary: options?.mapChangeSummary,
-    mapEffects: options?.mapEffects
+    mapEffects,
+    mapFocusCountryIds: options?.mapFocusCountryIds ?? fallbackFocus,
+    mapFocusProvinceIds: options?.mapFocusProvinceIds
   };
 }
 
@@ -106,6 +129,7 @@ function createMapEffect(
   options?: {
     sourceCountryId?: string;
     persistent?: boolean;
+    layer?: "effect" | "artifact";
   }
 ): MapEffect {
   return {
@@ -116,8 +140,80 @@ function createMapEffect(
     intensity,
     label,
     tick,
-    persistent: options?.persistent
+    persistent: options?.persistent,
+    layer: options?.layer ?? "effect"
   };
+}
+
+function artifactKindForEffect(kind: MapEffect["kind"]): MapArtifact["kind"] | null {
+  if (kind === "army") return "unit";
+  if (kind === "fortification") return "fort";
+  if (kind === "industry") return "industry_site";
+  return null;
+}
+
+function upsertMapArtifact(
+  game: GameState,
+  input: {
+    kind: MapArtifact["kind"];
+    countryId: string;
+    label: string;
+    strength: number;
+    tick: number;
+    provinceId?: string;
+  }
+): MapArtifact {
+  const key = `${input.kind}:${input.countryId}:${input.provinceId ?? "default"}`;
+  const existing = game.mapArtifacts.find((artifact) => artifact.id === key);
+  if (existing) {
+    existing.strength = clamp(existing.strength + input.strength, 1, 12);
+    existing.updatedTick = input.tick;
+    existing.label = input.label;
+    existing.provinceId = input.provinceId;
+    return existing;
+  }
+
+  const artifact: MapArtifact = {
+    id: key,
+    kind: input.kind,
+    countryId: input.countryId,
+    provinceId: input.provinceId,
+    label: input.label,
+    strength: clamp(input.strength, 1, 12),
+    createdTick: input.tick,
+    updatedTick: input.tick
+  };
+  game.mapArtifacts.push(artifact);
+  return artifact;
+}
+
+function applyEffectsToArtifacts(game: GameState, effects: MapEffect[]): void {
+  for (const effect of effects) {
+    const artifactKind = artifactKindForEffect(effect.kind);
+    if (!artifactKind) continue;
+    const baseStrength = Math.max(1, Math.round(effect.intensity + (effect.persistent ? 1 : 0)));
+    upsertMapArtifact(game, {
+      kind: artifactKind,
+      countryId: effect.countryId,
+      label: effect.label,
+      strength: baseStrength,
+      tick: game.tick
+    });
+  }
+}
+
+function decayMapArtifacts(game: GameState): void {
+  game.mapArtifacts = game.mapArtifacts
+    .map((artifact) => {
+      const age = Math.max(0, game.tick - artifact.updatedTick);
+      const decay = age >= 4 ? 2 : 1;
+      const nextStrength = artifact.strength - decay;
+      return {
+        ...artifact,
+        strength: nextStrength
+      };
+    })
+    .filter((artifact) => artifact.strength > 0);
 }
 
 function pickRegionalCountries(
@@ -343,6 +439,8 @@ function applyOrderEffect(game: GameState, order: TurnOrder, highlights: string[
     `${order.kind.toUpperCase()} toward ${target.name}: W ${before.wealth}->${target.wealth}, S ${before.stability}->${target.stability}, T ${before.tension}->${target.tension}, Army ${player.army}`
   );
 
+  const eventId = `${game.id}-evt-${game.tick}-${game.events.length + 1}`;
+  const effects = buildOrderMapEffects(game, eventId, order, player.id);
   const event = createEvent(
     game,
     "order",
@@ -357,12 +455,14 @@ function applyOrderEffect(game: GameState, order: TurnOrder, highlights: string[
           ? "Border pressure increased and regional stability dipped."
           : order.kind === "defend"
             ? "Defensive readiness improved with a visible military posture shift."
-            : "Political and economic pressure changed the local balance."
+            : "Political and economic pressure changed the local balance.",
+      mapEffects: effects,
+      mapFocusCountryIds: uniqueIds([order.targetCountryId, player.id, ...focusCountryIdsFromEffects(effects)])
     }
   );
-  event.mapEffects = buildOrderMapEffects(game, event.id, order, player.id);
 
   pushEvent(game, event);
+  applyEffectsToArtifacts(game, effects);
   eventIds.push(event.id);
 }
 
@@ -545,6 +645,8 @@ function loopsForStep(step: JumpStep): number {
 }
 
 function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null {
+  decayMapArtifacts(game);
+
   const queued = [...game.queuedOrders];
   game.queuedOrders = [];
   const baselineById = new Map(
@@ -574,6 +676,7 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
   const majorEvent = simulateNaturalDynamics(game);
   if (majorEvent) {
     pushEvent(game, majorEvent);
+    applyEffectsToArtifacts(game, majorEvent.mapEffects ?? []);
     eventIds.push(majorEvent.id);
   }
 
@@ -723,6 +826,8 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
   }
   if (emergentMapEffects.length > 0) {
     roundEvent.mapEffects = emergentMapEffects;
+    roundEvent.mapFocusCountryIds = focusCountryIdsFromEffects(emergentMapEffects);
+    applyEffectsToArtifacts(game, emergentMapEffects);
   }
 
   pushEvent(game, roundEvent);
@@ -984,25 +1089,25 @@ export function sendDiplomacyMessage(
     );
   }
 
-  pushEvent(
+  const diplomacyEvent = createEvent(
     game,
-    createEvent(
-      game,
-      "diplomacy",
-      `Diplomatic Exchange: ${target.name}`,
-      `${trimmed} | Reply: ${resolved.reply}`,
-      {
-        countryId: target.id,
-        locationLabel: target.name,
-        factionLabel: resolved.stance.toUpperCase(),
-        mapChangeSummary:
-          resolved.stance === "hostile" ? "Relations deteriorated." :
-            resolved.stance === "friendly" ? "Relations improved." :
-              "Relations remain uncertain.",
-        mapEffects: diplomacyEffects
-      }
-    )
+    "diplomacy",
+    `Diplomatic Exchange: ${target.name}`,
+    `${trimmed} | Reply: ${resolved.reply}`,
+    {
+      countryId: target.id,
+      locationLabel: target.name,
+      factionLabel: resolved.stance.toUpperCase(),
+      mapChangeSummary:
+        resolved.stance === "hostile" ? "Relations deteriorated." :
+          resolved.stance === "friendly" ? "Relations improved." :
+            "Relations remain uncertain.",
+      mapEffects: diplomacyEffects,
+      mapFocusCountryIds: uniqueIds([target.id, game.playerCountryId, ...focusCountryIdsFromEffects(diplomacyEffects)])
+    }
   );
+  pushEvent(game, diplomacyEvent);
+  applyEffectsToArtifacts(game, diplomacyEffects);
 
   game.tokenBalance = clampTokens(game.tokenBalance - 0.018);
   game.selectedCountryId = target.id;

@@ -1239,6 +1239,24 @@ svg {
   opacity: 0.92;
 }
 
+.province-shape {
+  fill: none;
+  stroke: rgba(20, 26, 40, 0.52);
+  stroke-width: 0.05;
+  pointer-events: auto;
+  transition: stroke 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
+}
+
+.province-shape:hover {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 0.09;
+}
+
+.province-shape.is-selected {
+  stroke: rgba(255, 244, 167, 0.95);
+  stroke-width: 0.14;
+}
+
 .world-map-label {
   font-family: "Cormorant SC", serif;
   letter-spacing: 0.14em;
@@ -1380,6 +1398,36 @@ svg {
   fill: rgba(242, 122, 49, 0.92);
 }
 
+.map-artifact-marker {
+  pointer-events: auto;
+}
+
+.map-artifact-marker circle {
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 0.11;
+}
+
+.map-artifact-marker text {
+  fill: rgba(255, 255, 255, 0.96);
+  font-size: 0.42rem;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: rgba(7, 10, 20, 0.65);
+  stroke-width: 0.08;
+}
+
+.map-artifact-marker.kind-unit circle {
+  fill: rgba(238, 67, 94, 0.93);
+}
+
+.map-artifact-marker.kind-fort circle {
+  fill: rgba(133, 94, 255, 0.93);
+}
+
+.map-artifact-marker.kind-industry_site circle {
+  fill: rgba(239, 168, 70, 0.93);
+}
+
 .overlay-panel,
 .timeline-panel {
   position: absolute;
@@ -1439,6 +1487,16 @@ svg {
   width: min(438px, calc(100vw - 2rem));
   max-height: calc(100vh - 8rem);
   overflow-y: auto;
+}
+
+.left-column-panel {
+  left: 1rem;
+  right: auto;
+}
+
+.right-column-panel {
+  right: 1rem;
+  left: auto;
 }
 
 .events-panel > .overlay-heading,
@@ -1882,6 +1940,15 @@ svg {
     top: auto;
     bottom: 5.6rem;
     max-height: 48vh;
+  }
+
+  .left-column-panel {
+    bottom: 5.6rem;
+  }
+
+  .right-column-panel {
+    bottom: calc(5.6rem + 46vh);
+    max-height: 38vh;
   }
 
   .jump-capsule {

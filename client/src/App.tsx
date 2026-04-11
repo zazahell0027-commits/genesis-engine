@@ -24,7 +24,7 @@ export default function App(): React.JSX.Element {
       const items = await listGames();
       setRecentGames(items);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to refresh local games");
+      setError(error instanceof Error ? error.message : "Impossible de rafraichir les parties locales");
     }
   }
 
@@ -45,7 +45,7 @@ export default function App(): React.JSX.Element {
         setBrowserData({ ...presetPayload, categories: categories.length > 0 ? categories : presetPayload.categories });
         setRecentGames(games);
       } catch (error) {
-        if (!cancelled) setError(error instanceof Error ? error.message : "Unable to load application shell");
+        if (!cancelled) setError(error instanceof Error ? error.message : "Impossible de charger l'interface");
       } finally {
         if (!cancelled) setLoadingChrome(false);
       }
@@ -79,8 +79,8 @@ export default function App(): React.JSX.Element {
           element={(
             <PresetBrowserPage
               title="Alternate history presets"
-              eyebrow="Featured browser"
-              description="Browse curated and community-driven worlds, then launch into a full-screen simulation flow modeled after Pax Historia."
+              eyebrow="Selection phare"
+              description="Parcourez les mondes officiels et communautaires puis lancez une partie plein ecran style Pax."
               browserData={browserData}
               loading={loadingChrome}
               recentGames={recentGames}
@@ -93,8 +93,8 @@ export default function App(): React.JSX.Element {
           element={(
             <PresetBrowserPage
               title="Presets"
-              eyebrow="Content browser"
-              description="A gallery-like browser with category chips, featured rails, and ready-to-launch setup sheets."
+              eyebrow="Navigateur de contenu"
+              description="Navigateur a rails, categories et fiches de lancement rapides."
               browserData={browserData}
               loading={loadingChrome}
               recentGames={recentGames}

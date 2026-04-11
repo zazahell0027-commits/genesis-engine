@@ -34,6 +34,7 @@ export type QuickActionKind = "attack" | "defend" | "stabilize" | "invest";
 export type BadgeTone = "neutral" | "accent" | "warning";
 export type TimelineTone = "normal" | "major" | "crisis" | "diplomacy";
 export type MapEffectKind = "army" | "fortification" | "industry" | "stability" | "diplomacy" | "crisis";
+export type MapArtifactKind = "unit" | "fort" | "industry_site";
 
 export type CountryDescriptor = {
   id: string;
@@ -138,12 +139,24 @@ export type CountryState = {
 export type MapEffect = {
   id: string;
   kind: MapEffectKind;
+  layer?: "effect" | "artifact";
   countryId: string;
   sourceCountryId?: string;
   intensity: number;
   label: string;
   tick: number;
   persistent?: boolean;
+};
+
+export type MapArtifact = {
+  id: string;
+  kind: MapArtifactKind;
+  countryId: string;
+  provinceId?: string;
+  label: string;
+  strength: number;
+  createdTick: number;
+  updatedTick: number;
 };
 
 export type GameEvent = {
@@ -161,6 +174,8 @@ export type GameEvent = {
   mapChangeSummary?: string;
   countryId?: string;
   mapEffects?: MapEffect[];
+  mapFocusCountryIds?: string[];
+  mapFocusProvinceIds?: string[];
 };
 
 export type TurnOrder = {
@@ -230,6 +245,7 @@ export type RoundSnapshot = {
   day: number;
   displayDate: string;
   countries: CountryState[];
+  mapArtifacts: MapArtifact[];
   eventIds: string[];
   summary: string;
 };
@@ -268,7 +284,9 @@ export type GameState = {
   actionPoints: number;
   maxActionPoints: number;
   countries: CountryState[];
+  mapArtifacts: MapArtifact[];
   selectedCountryId: string;
+  selectedProvinceId?: string | null;
   selectedCountryName: string;
   events: GameEvent[];
   queuedOrders: TurnOrder[];

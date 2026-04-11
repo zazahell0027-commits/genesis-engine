@@ -30,31 +30,31 @@ export function ChromeHeader(props: {
       <nav className="main-nav">
         <NavLink to="/games" className={({ isActive }) => `nav-pill${isActive ? " is-active" : ""}`}>
           <GamepadIcon />
-          <span>Games</span>
+          <span>Parties</span>
         </NavLink>
         <NavLink to="/presets" className={({ isActive }) => `nav-pill${isActive ? " is-active" : ""}`}>
           <PlayFlagIcon />
-          <span>Presets</span>
+          <span>Scenarios</span>
         </NavLink>
         <NavLink to="/flags" className={({ isActive }) => `nav-pill${isActive ? " is-active" : ""}`}>
           <FlagIcon />
-          <span>Flags</span>
+          <span>Drapeaux</span>
         </NavLink>
         <NavLink to="/community" className={({ isActive }) => `nav-pill${isActive ? " is-active" : ""}`}>
           <CommunityIcon />
-          <span>Community</span>
+          <span>Communaute</span>
         </NavLink>
       </nav>
 
       <div className="header-meta">
-        <button type="button" className="meta-icon-button" aria-label="Gift">
+        <button type="button" className="meta-icon-button" aria-label="Cadeau">
           <GiftIcon />
         </button>
         <div className="token-pill">
           <CoinIcon />
           <span>{props.tokenLabel}</span>
         </div>
-        <button type="button" className="profile-pill" aria-label="Profile">
+        <button type="button" className="profile-pill" aria-label="Profil">
           <AvatarIcon />
         </button>
       </div>

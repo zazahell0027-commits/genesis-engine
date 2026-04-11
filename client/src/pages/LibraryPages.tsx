@@ -22,17 +22,17 @@ export function GamesPage(props: {
     <main className="route-page">
       <section className="page-hero compact">
         <div className="page-hero-copy">
-          <span className="eyebrow">Local sessions</span>
-          <h1>Games</h1>
-          <p>Resume the last local simulations started in this workspace. Each card reflects the current in-memory world state.</p>
+          <span className="eyebrow">Sessions locales</span>
+          <h1>Parties</h1>
+          <p>Reprenez les simulations locales recentes de ce workspace.</p>
         </div>
       </section>
 
       <section className="content-section">
         <div className="games-grid">
-          {props.loading && <div className="empty-panel">Loading recent sessions...</div>}
+          {props.loading && <div className="empty-panel">Chargement des sessions recentes...</div>}
           {!props.loading && props.recentGames.length === 0 && (
-            <div className="empty-panel">No game has been started yet. Open a preset to create your first session.</div>
+            <div className="empty-panel">Aucune partie lancee. Ouvrez un preset pour creer votre premiere session.</div>
           )}
           {props.recentGames.map((game) => (
             <Link key={game.id} to={`/game/${game.id}`} className="game-card">
@@ -40,7 +40,7 @@ export function GamesPage(props: {
               <div className="game-card-copy">
                 <strong>{game.presetTitle}</strong>
                 <span>{game.playerCountryName}</span>
-                <span>{game.displayDate} • Tick {game.tick}</span>
+                <span>{`${game.displayDate} - Tick ${game.tick}`}</span>
                 <span>{game.lastUpdatedLabel}</span>
               </div>
             </Link>
@@ -56,9 +56,9 @@ export function FlagsPage(): React.JSX.Element {
     <main className="route-page">
       <section className="page-hero compact">
         <div className="page-hero-copy">
-          <span className="eyebrow">Reference surface</span>
-          <h1>Flags</h1>
-          <p>This read-only page mirrors the kind of browseable ancillary surface Pax Historia exposes around presets and identity.</p>
+          <span className="eyebrow">Surface reference</span>
+          <h1>Drapeaux</h1>
+          <p>Page read-only inspiree des surfaces annexes de Pax Historia.</p>
         </div>
       </section>
 
@@ -68,7 +68,7 @@ export function FlagsPage(): React.JSX.Element {
             <article key={item.title} className="category-card" style={{ borderColor: item.accent }}>
               <strong>{item.title}</strong>
               <p>{item.description}</p>
-              <span>Display-ready collection</span>
+              <span>Collection prete a afficher</span>
             </article>
           ))}
         </div>
@@ -82,9 +82,9 @@ export function CommunityPage(): React.JSX.Element {
     <main className="route-page">
       <section className="page-hero compact">
         <div className="page-hero-copy">
-          <span className="eyebrow">Community surface</span>
-          <h1>Community</h1>
-          <p>A lightweight but credible read-only area for creators, playlists, and rotating community tracks.</p>
+          <span className="eyebrow">Surface communaute</span>
+          <h1>Communaute</h1>
+          <p>Zone read-only pour les createurs, playlists et mises en avant communautaires.</p>
         </div>
       </section>
 
@@ -94,7 +94,7 @@ export function CommunityPage(): React.JSX.Element {
             <article key={track.title} className="community-card">
               <strong>{track.title}</strong>
               <p>{track.subtitle}</p>
-              <span>Updated weekly</span>
+              <span>Mise a jour hebdomadaire</span>
             </article>
           ))}
         </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import type { AdvisorResponse, AdvisorSuggestion, GameState, JumpStep, QuickActionKind, TimelineEntry } from "@genesis/shared";
+import type { AdvisorResponse, AdvisorSuggestion, GameEvent, GameState, JumpStep, QuickActionKind, TimelineEntry } from "@genesis/shared";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   getAdvisor,
@@ -25,8 +25,15 @@ import {
   formatMoney
 } from "../components/Icons";
 
-type OverlayPanel = "events" | "timeline" | "actions" | "chats" | "advisor" | "search" | "menu";
+type OverlayPanel = "events" | "actions" | "chats" | "search" | "menu";
+type RightPanel = "advisor" | "timeline" | "none";
 type BusyAction = "order" | "quick-action" | "jump" | "major-event" | "diplomacy" | "advisor" | null;
+
+type MapFocus = {
+  countryIds: string[];
+  provinceIds: string[];
+  token: number;
+};
 
 function normalize(value: string): string {
   return value
@@ -38,50 +45,69 @@ function normalize(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+function uniqueIds(values: Array<string | undefined | null>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim().length > 0)))];
+}
+
+function extractEventFocus(event: GameEvent | null): { countryIds: string[]; provinceIds: string[] } {
+  if (!event) return { countryIds: [], provinceIds: [] };
+  const inferredCountryIds = event.mapEffects
+    ? event.mapEffects.flatMap((effect) => [effect.countryId, effect.sourceCountryId])
+    : [];
+  return {
+    countryIds: uniqueIds([
+      event.countryId,
+      ...(event.mapFocusCountryIds ?? []),
+      ...inferredCountryIds
+    ]),
+    provinceIds: uniqueIds(event.mapFocusProvinceIds ?? [])
+  };
+}
+
 function getBusyCopy(action: BusyAction, targetCountryName?: string): { title: string; detail: string } | null {
   if (action === "order") {
     return {
-      title: "Interpreting your order",
-      detail: "The local model is turning your text into a concrete strategic action."
+      title: "Interpretation de l'ordre",
+      detail: "Le modele local transforme votre texte en action strategique."
     };
   }
 
   if (action === "quick-action") {
     return {
-      title: "Preparing the action",
+      title: "Preparation de l'action rapide",
       detail: targetCountryName
-        ? `Queueing a focused move around ${targetCountryName}.`
-        : "Queueing a focused move for the next round."
+        ? `Mise en file d'une action ciblee sur ${targetCountryName}.`
+        : "Mise en file d'une action pour le prochain round."
     };
   }
 
   if (action === "jump") {
     return {
-      title: "Simulating the next round",
-      detail: "Orders, world pressure, and event text are being resolved together."
+      title: "Simulation du round",
+      detail: "Ordres, pression mondiale et evenements sont en cours de resolution."
     };
   }
 
   if (action === "major-event") {
     return {
-      title: "Searching for the next major event",
-      detail: "The simulation is advancing until it hits a major diplomatic or military beat."
+      title: "Recherche d'un evenement majeur",
+      detail: "La simulation avance jusqu'a trouver un point diplomatique ou militaire fort."
     };
   }
 
   if (action === "diplomacy") {
     return {
-      title: "Waiting for a diplomatic reply",
+      title: "Reponse diplomatique en attente",
       detail: targetCountryName
-        ? `${targetCountryName} is generating a response with the local model.`
-        : "The foreign office is preparing an answer."
+        ? `${targetCountryName} genere une reponse via le modele local.`
+        : "Le ministere des affaires etrangeres prepare une reponse."
     };
   }
 
   if (action === "advisor") {
     return {
-      title: "Generating an advisor briefing",
-      detail: "The local model is summarizing the current pressure of the world."
+      title: "Analyse du conseiller",
+      detail: "Le conseiller local synthetise les tensions du round."
     };
   }
 
@@ -103,8 +129,10 @@ export function GameRoutePage(props: {
   const [game, setGame] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
-  const [panel, setPanel] = useState<OverlayPanel>("events");
+  const [panel, setPanel] = useState<OverlayPanel>("actions");
+  const [rightPanel, setRightPanel] = useState<RightPanel>("advisor");
   const [selectedCountryId, setSelectedCountryId] = useState<string | null>(null);
+  const [selectedProvinceId, setSelectedProvinceId] = useState<string | null>(null);
   const [viewedSnapshotId, setViewedSnapshotId] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [jumpStep, setJumpStep] = useState<JumpStep>("month");
@@ -115,6 +143,7 @@ export function GameRoutePage(props: {
   const [advisorHistory, setAdvisorHistory] = useState<AdvisorResponse[]>([]);
   const [advisorPrompt, setAdvisorPrompt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [mapFocus, setMapFocus] = useState<MapFocus>({ countryIds: [], provinceIds: [], token: 0 });
   const busy = busyAction !== null;
 
   useEffect(() => {
@@ -135,14 +164,17 @@ export function GameRoutePage(props: {
         setSelectedCountryId((current) => (
           current && loaded.countries.some((country) => country.id === current) ? current : loaded.selectedCountryId
         ));
+        setSelectedProvinceId(loaded.selectedProvinceId ?? null);
         setActiveEventId(loaded.eventWindow.activeEventId);
         setJumpStep(loaded.availableJumpOptions[1]?.step ?? loaded.availableJumpOptions[0]?.step ?? "month");
         setViewedSnapshotId(null);
         setDiplomacyTargetId(loaded.countries.find((country) => country.id !== loaded.playerCountryId)?.id ?? loaded.playerCountryId);
         setAdvisorPrompt("");
+        setPanel("actions");
+        setRightPanel("advisor");
         onTokenBalanceChange(loaded.tokenBalance);
       } catch (error) {
-        onError(error instanceof Error ? error.message : "Unable to load game");
+        onError(error instanceof Error ? error.message : "Impossible de charger la partie");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -161,6 +193,7 @@ export function GameRoutePage(props: {
     setSelectedCountryId((current) => (
       current && updated.countries.some((country) => country.id === current) ? current : updated.selectedCountryId
     ));
+    setSelectedProvinceId((current) => current ?? updated.selectedProvinceId ?? null);
     setActiveEventId(updated.eventWindow.activeEventId);
     setViewedSnapshotId((current) => (nextPanel === "events" ? updated.snapshots[updated.snapshots.length - 1]?.id ?? null : current));
     if (nextPanel) setPanel(nextPanel);
@@ -171,13 +204,14 @@ export function GameRoutePage(props: {
   if (loading || !game) {
     return (
       <main className="game-route">
-        <div className="game-loading">Loading world state...</div>
+        <div className="game-loading">Chargement de l'etat du monde...</div>
       </main>
     );
   }
 
   const snapshot = viewedSnapshotId ? game.snapshots.find((entry) => entry.id === viewedSnapshotId) ?? null : null;
   const activeCountries = snapshot?.countries ?? game.countries;
+  const activeMapArtifacts = snapshot?.mapArtifacts ?? game.mapArtifacts;
   const selectedCountry = activeCountries.find((country) => country.id === selectedCountryId)
     ?? activeCountries.find((country) => country.id === game.playerCountryId)
     ?? activeCountries[0];
@@ -199,9 +233,10 @@ export function GameRoutePage(props: {
         : [];
   const activeEventEffects = activeEvent?.mapEffects ?? [];
   const mapEffects = mapContextEvents.flatMap((event) => event.mapEffects ?? []);
-  const highlightedCountryIds = [...new Set(
-    mapEffects.flatMap((effect) => [effect.countryId, effect.sourceCountryId]).filter((id): id is string => Boolean(id))
-  )];
+  const highlightedCountryIds = uniqueIds([
+    ...mapEffects.flatMap((effect) => [effect.countryId, effect.sourceCountryId]),
+    ...(activeEvent?.mapFocusCountryIds ?? [])
+  ]);
   const activeConversation = game.diplomacyLog.filter((entry) => entry.targetCountryId === diplomacyTargetId);
   const diplomacyTarget = game.countries.find((country) => country.id === diplomacyTargetId) ?? null;
   const searchMatches = activeCountries.filter((country) => normalize(country.name).includes(normalize(searchQuery))).slice(0, 14);
@@ -215,6 +250,9 @@ export function GameRoutePage(props: {
   const olderSnapshot = snapshotIndex >= 0 ? game.snapshots[snapshotIndex - 1] ?? null : game.snapshots[game.snapshots.length - 1] ?? null;
   const newerSnapshot = snapshotIndex > 0 ? game.snapshots[snapshotIndex + 1] ?? null : null;
   const busyCopy = getBusyCopy(busyAction, diplomacyTarget?.name ?? selectedCountry?.name);
+  const mapFocusCountryIds = mapFocus.countryIds;
+  const mapFocusProvinceIds = mapFocus.provinceIds;
+  const mapFocusToken = mapFocus.token;
 
   async function handleQueueOrder(): Promise<void> {
     if (!orderText.trim()) return;
@@ -227,7 +265,7 @@ export function GameRoutePage(props: {
       setOrderText("");
       await applyGameUpdate(updated, "actions");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to queue order");
+      onError(error instanceof Error ? error.message : "Impossible d'ajouter l'ordre");
     } finally {
       setBusyAction(null);
     }
@@ -243,7 +281,7 @@ export function GameRoutePage(props: {
       const updated = await queueQuickAction(currentGame.id, selectedCountry.id, kind);
       await applyGameUpdate(updated, "actions");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to queue quick action");
+      onError(error instanceof Error ? error.message : "Impossible de lancer l'action rapide");
     } finally {
       setBusyAction(null);
     }
@@ -258,7 +296,7 @@ export function GameRoutePage(props: {
       const updated = await removeOrder(currentGame.id, orderId);
       await applyGameUpdate(updated, "actions");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to remove order");
+      onError(error instanceof Error ? error.message : "Impossible de retirer l'ordre");
     } finally {
       setBusyAction(null);
     }
@@ -272,8 +310,9 @@ export function GameRoutePage(props: {
     try {
       const updated = await jumpForward(currentGame.id, jumpStep);
       await applyGameUpdate(updated, "events");
+      setRightPanel("advisor");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to jump forward");
+      onError(error instanceof Error ? error.message : "Impossible d'avancer dans le temps");
     } finally {
       setBusyAction(null);
     }
@@ -287,8 +326,9 @@ export function GameRoutePage(props: {
     try {
       const updated = await jumpToMajorEvent(currentGame.id);
       await applyGameUpdate(updated, "events");
+      setRightPanel("timeline");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to jump to major event");
+      onError(error instanceof Error ? error.message : "Impossible d'atteindre un evenement majeur");
     } finally {
       setBusyAction(null);
     }
@@ -306,7 +346,7 @@ export function GameRoutePage(props: {
       setDiplomacyText("");
       await applyGameUpdate(updated, "chats");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to send diplomacy");
+      onError(error instanceof Error ? error.message : "Impossible d'envoyer le message diplomatique");
     } finally {
       setBusyAction(null);
     }
@@ -328,9 +368,10 @@ export function GameRoutePage(props: {
         response,
         ...current.filter((entry) => `${entry.tick}:${entry.snapshotId ?? "live"}` !== `${response.tick}:${response.snapshotId ?? "live"}`)
       ].slice(0, 8));
-      await applyGameUpdate(updated, "advisor");
+      await applyGameUpdate(updated);
+      setRightPanel("advisor");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to load advisor");
+      onError(error instanceof Error ? error.message : "Impossible de charger le conseiller");
     } finally {
       setBusyAction(null);
     }
@@ -355,7 +396,7 @@ export function GameRoutePage(props: {
         : await queueOrder(currentGame.id, suggestion.orderText);
       await applyGameUpdate(updated, "actions");
     } catch (error) {
-      onError(error instanceof Error ? error.message : "Unable to apply advisor action");
+      onError(error instanceof Error ? error.message : "Impossible d'appliquer la suggestion");
     } finally {
       setBusyAction(null);
     }
@@ -367,6 +408,12 @@ export function GameRoutePage(props: {
     if (!currentGame) return;
     const matchingSnapshot = [...currentGame.snapshots].reverse().find((entry) => entry.tick === activeEvent.tick);
     setViewedSnapshotId(matchingSnapshot?.id ?? null);
+    const focus = extractEventFocus(activeEvent);
+    setMapFocus((current) => ({
+      countryIds: focus.countryIds,
+      provinceIds: focus.provinceIds,
+      token: current.token + 1
+    }));
   }
 
   function handleTimelineSelect(entry: TimelineEntry): void {
@@ -376,6 +423,15 @@ export function GameRoutePage(props: {
     const matchingSnapshot = currentGame.snapshots.find((snapshotItem) => snapshotItem.id === entry.snapshotId);
     const matchingEventId = matchingSnapshot?.eventIds[0] ?? null;
     if (matchingEventId) setActiveEventId(matchingEventId);
+    const matchingEvent = matchingEventId
+      ? currentGame.events.find((event) => event.id === matchingEventId) ?? null
+      : null;
+    const focus = extractEventFocus(matchingEvent);
+    setMapFocus((current) => ({
+      countryIds: focus.countryIds,
+      provinceIds: focus.provinceIds,
+      token: current.token + 1
+    }));
   }
 
   function handleOlderSnapshot(): void {
@@ -395,7 +451,7 @@ export function GameRoutePage(props: {
   return (
     <main className="game-route">
       <div className="game-stage">
-        <button type="button" className="floating-corner-button" onClick={() => setPanel(panel === "menu" ? "events" : "menu")}>
+        <button type="button" className="floating-corner-button" onClick={() => setPanel(panel === "menu" ? "actions" : "menu")}>
           <MenuIcon />
         </button>
 
@@ -410,7 +466,7 @@ export function GameRoutePage(props: {
           </button>
           <div className="jump-capsule-copy">
             <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
-            <span>{snapshot ? `Viewing tick ${snapshot.tick}` : `Live - Tick ${game.tick}`}</span>
+            <span>{snapshot ? `Lecture - Tick ${snapshot.tick}` : `Live - Tick ${game.tick}`}</span>
           </div>
           <button
             type="button"
@@ -425,8 +481,8 @@ export function GameRoutePage(props: {
         <button
           type="button"
           className="timeline-toggle-button"
-          aria-label="Chronology"
-          onClick={() => setPanel(panel === "timeline" ? "events" : "timeline")}
+          aria-label="Chronologie"
+          onClick={() => setRightPanel(rightPanel === "timeline" ? "advisor" : "timeline")}
         >
           <CalendarIcon />
         </button>
@@ -435,9 +491,23 @@ export function GameRoutePage(props: {
           countries={activeCountries}
           preset={game.preset}
           selectedCountryId={selectedCountry?.id ?? null}
+          selectedProvinceId={selectedProvinceId}
           mapEffects={mapEffects}
+          mapArtifacts={activeMapArtifacts}
           highlightedCountryIds={highlightedCountryIds}
+          focusCountryIds={mapFocusCountryIds}
+          focusProvinceIds={mapFocusProvinceIds}
+          focusToken={mapFocusToken}
           onSelectCountry={(countryId) => {
+            setSelectedCountryId(countryId);
+            setSelectedProvinceId(null);
+            setSearchQuery("");
+            if (countryId !== game.playerCountryId) {
+              setDiplomacyTargetId(countryId);
+            }
+          }}
+          onSelectProvince={(provinceId, countryId) => {
+            setSelectedProvinceId(provinceId);
             setSelectedCountryId(countryId);
             setSearchQuery("");
             if (countryId !== game.playerCountryId) {
@@ -458,13 +528,13 @@ export function GameRoutePage(props: {
           </button>
         </div>
 
-        <button type="button" className="floating-profile-button" onClick={() => setPanel("advisor")}>
+        <button type="button" className="floating-profile-button" onClick={() => setRightPanel(rightPanel === "advisor" ? "none" : "advisor")}>
           <AvatarIcon />
         </button>
 
         <div className="game-status-pill">
           <span>{selectedCountry?.name ?? game.playerCountryName}</span>
-          <strong>{viewedSnapshotId ? "Historical snapshot" : game.preset.title}</strong>
+          <strong>{viewedSnapshotId ? "Snapshot historique" : game.preset.title}</strong>
         </div>
 
         {busyCopy && (
@@ -495,7 +565,7 @@ export function GameRoutePage(props: {
         )}
 
         {panel === "events" && (
-          <section className="overlay-panel events-panel">
+          <section className="overlay-panel events-panel left-column-panel">
             <div className="overlay-heading">
               <div>
                 <h2>{game.eventWindow.title}</h2>
@@ -555,14 +625,14 @@ export function GameRoutePage(props: {
           </section>
         )}
 
-        {panel === "timeline" && (
-          <aside className="timeline-panel">
+        {rightPanel === "timeline" && (
+          <aside className="timeline-panel right-column-panel">
             <div className="overlay-heading">
               <div>
-                <h2>Chronology</h2>
-                <p>{snapshot ? "Viewing historical snapshot" : "Latest resolved rounds"}</p>
+                <h2>Chronologie</h2>
+                <p>{snapshot ? "Lecture d'un snapshot historique" : "Rounds les plus recents"}</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
+              <button type="button" className="close-button" onClick={() => setRightPanel("advisor")}>x</button>
             </div>
             <div className="timeline-list">
               {game.timeline.map((entry) => (
@@ -580,31 +650,31 @@ export function GameRoutePage(props: {
             </div>
             <div className="timeline-actions">
               <button type="button" className="secondary-button" onClick={() => setViewedSnapshotId(null)}>
-                Return to Live Map
+                Retour au live
               </button>
               <button type="button" className="primary-button" onClick={handleMajorEvent} disabled={busy}>
-                {busyAction === "major-event" ? "Searching..." : "To Next Major Event"}
+                {busyAction === "major-event" ? "Recherche..." : "Evenement majeur"}
               </button>
             </div>
           </aside>
         )}
 
         {panel === "actions" && (
-          <section className="overlay-panel side-panel">
+          <section className="overlay-panel side-panel left-column-panel">
             <div className="overlay-heading">
               <div>
                 <h2>Actions</h2>
-                <p>{`${game.actionPoints}/${game.maxActionPoints} action points available`}</p>
+                <p>{`${game.actionPoints}/${game.maxActionPoints} points d'action disponibles`}</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
             </div>
 
             {selectedCountry && (
               <div className="selected-country-card">
                 <strong>{selectedCountry.name}</strong>
                 <span>{selectedCountry.descriptor}</span>
-                <span>{`Power ${selectedCountry.power} | Stability ${selectedCountry.stability} | Tension ${selectedCountry.tension}`}</span>
-                <span>{`Army ${selectedCountry.army} | Industry ${selectedCountry.industry} | Fortification ${selectedCountry.fortification} | Unrest ${selectedCountry.unrest}`}</span>
+                <span>{`Puissance ${selectedCountry.power} | Stabilite ${selectedCountry.stability} | Tension ${selectedCountry.tension}`}</span>
+                <span>{`Armee ${selectedCountry.army} | Industrie ${selectedCountry.industry} | Fortification ${selectedCountry.fortification} | Unrest ${selectedCountry.unrest}`}</span>
               </div>
             )}
 
@@ -613,7 +683,7 @@ export function GameRoutePage(props: {
               onChange={(event) => setOrderText(event.target.value)}
               rows={5}
               className="large-textarea"
-              placeholder="Write a concrete action: military plan, domestic reform, alliance offer, or economic push."
+              placeholder="Decrivez une action concrete: offensive, reforme interne, pacte diplomatique, pression economique..."
             />
 
             <div className="quick-action-row">
@@ -633,15 +703,15 @@ export function GameRoutePage(props: {
 
             <div className="panel-actions">
               <button type="button" className="primary-button" onClick={handleQueueOrder} disabled={busy || !orderText.trim()}>
-                {busyAction === "order" ? "Interpreting..." : "Queue Order"}
+                {busyAction === "order" ? "Interpretation..." : "Ajouter a la file"}
               </button>
               <button type="button" className="secondary-button" onClick={handleJump} disabled={busy}>
-                {busyAction === "jump" ? "Simulating..." : "Jump Forward"}
+                {busyAction === "jump" ? "Simulation..." : "Saut temporel"}
               </button>
             </div>
 
             <div className="queued-orders">
-              {game.queuedOrders.length === 0 && <div className="empty-panel">No orders queued for the next round.</div>}
+              {game.queuedOrders.length === 0 && <div className="empty-panel">Aucun ordre en file pour le prochain round.</div>}
               {game.queuedOrders.map((order) => (
                 <article key={order.id} className="order-card">
                   <div>
@@ -649,7 +719,7 @@ export function GameRoutePage(props: {
                     <span>{order.text}</span>
                   </div>
                   <button type="button" className="text-button" onClick={() => handleRemoveOrder(order.id)} disabled={busy}>
-                    Remove
+                    Retirer
                   </button>
                 </article>
               ))}
@@ -657,7 +727,7 @@ export function GameRoutePage(props: {
 
             {game.lastRoundSummary && (
               <div className="round-summary-card">
-                <strong>Last round</strong>
+                <strong>Dernier round</strong>
                 <span>{game.lastRoundSummary.displayDate}</span>
                 {game.lastRoundSummary.highlights.map((line) => (
                   <p key={line}>{line}</p>
@@ -668,17 +738,17 @@ export function GameRoutePage(props: {
         )}
 
         {panel === "chats" && (
-          <section className="overlay-panel side-panel">
+          <section className="overlay-panel side-panel left-column-panel">
             <div className="overlay-heading">
               <div>
-                <h2>Chats</h2>
-                <p>Text diplomacy remains one of the strongest levers in the simulation.</p>
+                <h2>Chats diplomatiques</h2>
+                <p>La diplomatie textuelle influe directement sur les rounds et les evenements.</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
             </div>
 
             <label className="field-block">
-              <span>Target nation</span>
+              <span>Pays cible</span>
               <select value={diplomacyTargetId} onChange={(event) => setDiplomacyTargetId(event.target.value)}>
                 {game.countries
                   .filter((country) => country.id !== game.playerCountryId)
@@ -691,18 +761,18 @@ export function GameRoutePage(props: {
             <div className="chat-thread">
               {busyAction === "diplomacy" && diplomacyText.trim() && diplomacyTarget && (
                 <article className="chat-card stance-neutral is-pending">
-                  <strong>Awaiting reply</strong>
-                  <p>{`You: ${diplomacyText.trim()}`}</p>
-                  <p>{`${diplomacyTarget.name}: Generating a response...`}</p>
+                  <strong>Reponse en attente</strong>
+                  <p>{`Vous: ${diplomacyText.trim()}`}</p>
+                  <p>{`${diplomacyTarget.name}: Generation de la reponse...`}</p>
                 </article>
               )}
               {activeConversation.length === 0 && (
-                <div className="empty-panel">No exchanges yet with this country. Open with a concrete demand, offer, or warning.</div>
+                <div className="empty-panel">Aucun echange avec ce pays pour l'instant. Lancez une demande, une offre ou un avertissement.</div>
               )}
               {activeConversation.map((entry) => (
                 <article key={entry.id} className={`chat-card stance-${entry.stance}`}>
                   <strong>{entry.dateLabel}</strong>
-                  <p>{`You: ${entry.message}`}</p>
+                  <p>{`Vous: ${entry.message}`}</p>
                   <p>{`${entry.targetCountryName}: ${entry.reply}`}</p>
                 </article>
               ))}
@@ -713,29 +783,29 @@ export function GameRoutePage(props: {
               onChange={(event) => setDiplomacyText(event.target.value)}
               rows={4}
               className="large-textarea"
-              placeholder="Offer terms, threaten consequences, ask for recognition, or propose a pact."
+              placeholder="Proposez un pacte, posez des conditions, menacez ou ouvrez une voie de negociation."
             />
 
             <div className="panel-actions">
               <button type="button" className="primary-button" onClick={handleSendDiplomacy} disabled={busy || !diplomacyText.trim()}>
-                {busyAction === "diplomacy" ? "Negotiating..." : "Send Message"}
+                {busyAction === "diplomacy" ? "Negociation..." : "Envoyer"}
               </button>
             </div>
           </section>
         )}
 
-        {panel === "advisor" && (
-          <section className="overlay-panel side-panel advisor-panel">
+        {rightPanel === "advisor" && (
+          <section className="overlay-panel side-panel advisor-panel right-column-panel">
             <div className="overlay-heading">
               <div>
-                <h2>Advisor</h2>
+                <h2>Conseiller</h2>
                 <p>
                   {viewedSnapshotId
-                    ? "Historical mode: briefing is generated from the selected snapshot."
-                    : "Contextual guidance for the current round and world pressure."}
+                    ? "Mode historique: analyse basee sur le snapshot selectionne."
+                    : "Analyse contextuelle du round courant et des pressions mondiales."}
                 </p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
+              <button type="button" className="close-button" onClick={() => setRightPanel("none")}>x</button>
             </div>
 
             <div className="advisor-summary">
@@ -744,15 +814,15 @@ export function GameRoutePage(props: {
             </div>
 
             <label className="field-block">
-              <span>Advisor focus (optional)</span>
+              <span>Question au conseiller (optionnel)</span>
               <textarea
                 value={advisorPrompt}
                 onChange={(event) => setAdvisorPrompt(event.target.value)}
                 rows={3}
                 className="large-textarea advisor-question-textarea"
                 placeholder={viewedSnapshotId
-                  ? "Ask about this historical round: what should have happened next?"
-                  : "Ask for a focused plan: diplomacy, economy, military, or internal stability."}
+                  ? "Ex: Quelle action aurait ete optimale au round suivant ?"
+                  : "Ex: Priorite defense, economie ou diplomatie pour les 2 prochains rounds ?"}
               />
             </label>
 
@@ -762,7 +832,7 @@ export function GameRoutePage(props: {
                 <p>{advisorResponse.question ? `Question: ${advisorResponse.question} ` : ""}{advisorResponse.narrative}</p>
               </article>
             ) : (
-              <div className="empty-panel">No advisor briefing cached yet. Generate one for the current world state.</div>
+              <div className="empty-panel">Aucun brief en cache. Generez une premiere analyse.</div>
             )}
 
             {advisorResponse && advisorResponse.insights.length > 0 && (
@@ -791,7 +861,7 @@ export function GameRoutePage(props: {
                       }}
                       disabled={busy}
                     >
-                      {suggestion.kind === "diplomacy" ? "Open in Chats" : "Queue this action"}
+                      {suggestion.kind === "diplomacy" ? "Ouvrir dans Chats" : "Ajouter cette action"}
                     </button>
                   </article>
                 ))}
@@ -801,7 +871,7 @@ export function GameRoutePage(props: {
             {busyAction === "advisor" && (
               <article className="advisor-card is-pending">
                 <strong>{game.displayDate}</strong>
-                <p>Generating a new briefing from the current world pressure...</p>
+                <p>Generation d'un nouveau brief en cours...</p>
               </article>
             )}
 
@@ -819,32 +889,32 @@ export function GameRoutePage(props: {
             <div className="panel-actions">
               <button type="button" className="primary-button" onClick={handleAdvisor} disabled={busy}>
                 {busyAction === "advisor"
-                  ? "Thinking..."
+                  ? "Analyse..."
                   : viewedSnapshotId
-                    ? "Generate Snapshot Briefing"
-                    : "Generate Briefing"}
+                    ? "Analyser le snapshot"
+                    : "Analyser le round"}
               </button>
             </div>
           </section>
         )}
 
         {panel === "search" && (
-          <section className="overlay-panel search-panel">
+          <section className="overlay-panel search-panel left-column-panel">
             <div className="overlay-heading">
               <div>
-                <h2>Search Countries</h2>
-                <p>Jump directly to a nation and make it the current focus.</p>
+                <h2>Recherche de pays</h2>
+                <p>Selectionnez rapidement un pays pour recentrer vos decisions.</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
             </div>
 
             <label className="field-block">
-              <span>Search</span>
+              <span>Recherche</span>
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="France, Russia, Brazil..."
+                placeholder="France, Russie, Bresil..."
               />
             </label>
 
@@ -856,6 +926,7 @@ export function GameRoutePage(props: {
                   className={`country-row${selectedCountry?.id === country.id ? " is-active" : ""}`}
                   onClick={() => {
                     setSelectedCountryId(country.id);
+                    setSelectedProvinceId(null);
                     if (country.id !== game.playerCountryId) {
                       setDiplomacyTargetId(country.id);
                     }
@@ -871,28 +942,28 @@ export function GameRoutePage(props: {
         )}
 
         {panel === "menu" && (
-          <section className="overlay-panel menu-panel">
+          <section className="overlay-panel menu-panel left-column-panel">
             <div className="overlay-heading">
               <div>
-                <h2>Advanced Menu</h2>
-                <p>Session context, jump controls, and quick navigation.</p>
+                <h2>Menu avance</h2>
+                <p>Contexte de session, rythme temporel et navigation rapide.</p>
               </div>
-              <button type="button" className="close-button" onClick={() => setPanel("events")}>x</button>
+              <button type="button" className="close-button" onClick={() => setPanel("actions")}>x</button>
             </div>
 
             <div className="menu-grid">
               <article className="menu-card">
                 <strong>{game.preset.title}</strong>
-                <span>{`${game.difficulty} difficulty | ${game.aiQuality} A.I.`}</span>
+                <span>{`${game.difficulty} | IA ${game.aiQuality}`}</span>
               </article>
               <article className="menu-card">
                 <strong>{formatMoney(game.tokenBalance)}</strong>
-                <span>Remaining token balance</span>
+                <span>Solde de tokens</span>
               </article>
             </div>
 
             <label className="field-block">
-              <span>Jump pace</span>
+              <span>Rythme du saut</span>
               <select value={jumpStep} onChange={(event) => setJumpStep(event.target.value as JumpStep)}>
                 {game.availableJumpOptions.map((option) => (
                   <option key={option.step} value={option.step}>{option.label}</option>
@@ -902,15 +973,15 @@ export function GameRoutePage(props: {
 
             <div className="panel-actions">
               <button type="button" className="primary-button" onClick={handleJump} disabled={busy}>
-                {busyAction === "jump" ? "Simulating..." : "Jump Forward"}
+                {busyAction === "jump" ? "Simulation..." : "Saut temporel"}
               </button>
               <button type="button" className="secondary-button" onClick={handleMajorEvent} disabled={busy}>
-                {busyAction === "major-event" ? "Searching..." : "To Next Major Event"}
+                {busyAction === "major-event" ? "Recherche..." : "Vers evenement majeur"}
               </button>
             </div>
 
             <button type="button" className="text-button" onClick={() => navigate("/presets")}>
-              Return to Presets
+              Retour aux presets
             </button>
           </section>
         )}

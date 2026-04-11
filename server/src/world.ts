@@ -598,7 +598,7 @@ function relativeUpdatedLabel(timestamp: number): string {
 
 function createEmptyEventWindow(game: GameState): EventWindow {
   return {
-    title: "Events Between Dates",
+    title: "Evenements entre dates",
     rangeLabel: `${game.displayDate} -> ${game.displayDate}`,
     activeEventId: game.events[0]?.id ?? null,
     eventIds: game.events[0] ? [game.events[0].id] : [],
@@ -768,12 +768,18 @@ export function createSnapshot(game: GameState, summary: string, eventIds: strin
     day: game.day,
     displayDate: formatDate(game.year, game.month, game.day),
     countries: cloneCountries(game.countries),
+    mapArtifacts: game.mapArtifacts.map((artifact) => ({ ...artifact })),
     eventIds,
     summary
   };
 }
 
 export function saveGame(game: GameState): void {
+  game.mapArtifacts = game.mapArtifacts ?? [];
+  game.snapshots = (game.snapshots ?? []).map((snapshot) => ({
+    ...snapshot,
+    mapArtifacts: (snapshot.mapArtifacts ?? []).map((artifact) => ({ ...artifact }))
+  }));
   const selectedCountry =
     game.countries.find((country) => country.id === game.selectedCountryId) ??
     game.countries.find((country) => country.id === game.playerCountryId) ??
@@ -781,6 +787,7 @@ export function saveGame(game: GameState): void {
 
   game.displayDate = formatDate(game.year, game.month, game.day);
   game.selectedCountryId = selectedCountry?.id ?? game.playerCountryId;
+  game.selectedProvinceId = game.selectedProvinceId ?? null;
   game.selectedCountryName = selectedCountry?.name ?? game.playerCountryName;
   game.indicators = computeIndicators(game.countries);
   game.quickActions = QUICK_ACTIONS;
@@ -832,7 +839,9 @@ export function createGame(input: CreateGameInput): GameState {
     actionPoints: diff.ap,
     maxActionPoints: diff.ap,
     countries,
+    mapArtifacts: [],
     selectedCountryId: playerCountry.id,
+    selectedProvinceId: null,
     selectedCountryName: playerCountry.name,
     events: [],
     queuedOrders: [],
@@ -840,7 +849,7 @@ export function createGame(input: CreateGameInput): GameState {
     indicators: computeIndicators(countries),
     quickActions: QUICK_ACTIONS,
     eventWindow: {
-      title: "Events Between Dates",
+      title: "Evenements entre dates",
       rangeLabel: `${preset.startDate.label} -> ${preset.startDate.label}`,
       activeEventId: null,
       eventIds: [],
@@ -894,7 +903,7 @@ export function createGame(input: CreateGameInput): GameState {
   pushEvent(state, briefingEvent);
   state.snapshots.push(createSnapshot(state, "Opening world state loaded.", [briefingEvent.id, systemEvent.id]));
   state.eventWindow = {
-    title: "Events Between Dates",
+    title: "Evenements entre dates",
     rangeLabel: `${preset.startDate.label} -> ${preset.startDate.label}`,
     activeEventId: briefingEvent.id,
     eventIds: [briefingEvent.id, systemEvent.id],
@@ -989,7 +998,7 @@ export function buildEventWindowForTickRange(
     });
 
   return {
-    title: "Events Between Dates",
+    title: "Evenements entre dates",
     rangeLabel: formatRangeLabel(start, end),
     activeEventId: matchingEvents[0]?.id ?? null,
     eventIds: matchingEvents.map((event) => event.id),

@@ -77,7 +77,7 @@ export class OllamaProvider implements AIProvider {
       input.timelineContextText ? `Snapshot context: ${input.timelineContextText}` : "No snapshot context.",
       input.latestEventText ? `Latest event: ${input.latestEventText}` : "No recent event.",
       input.advisorQuestion ? `Advisor question: ${input.advisorQuestion}` : "No direct advisor question.",
-      "Write a sharp strategy-game advisor briefing in English, 3 sentences max, with cause and consequence."
+      "Write a sharp strategy-game advisor briefing in English, 3 short sentences max, ending with one concrete recommended move."
     ].join("\n");
 
     return this.generateText(
@@ -327,7 +327,14 @@ export class OllamaProvider implements AIProvider {
         return this.cachedModel;
       }
 
-      const preferredFallbacks = ["gpt-oss:20b", "deepseek-r1:8b", "mistral:latest", "gemma3:4b", "qwen3-vl:8b"];
+      const preferredFallbacks = [
+        "mistral:latest",
+        "llama3.2:3b",
+        "qwen2.5:3b",
+        "phi3:mini",
+        "gemma2:2b",
+        "gemma3:4b"
+      ];
       const fallback = preferredFallbacks.find((name) => available.includes(name));
       this.cachedModel = fallback ?? available[0];
       return this.cachedModel;

@@ -164,8 +164,8 @@ export function PresetBrowserPage(props: {
 
       <section className="preset-browser-section">
         <div className="browser-section-heading">
-          <h2>Recently Updated</h2>
-          <span>Newest preset adjustments and active community worlds.</span>
+          <h2>Mises a jour recentes</h2>
+          <span>Derniers ajustements de presets et mondes communautaires actifs.</span>
         </div>
         <div className="compact-preset-grid">
           {updatedPresets.map((preset) => (
@@ -177,8 +177,8 @@ export function PresetBrowserPage(props: {
       <section className="preset-browser-section dark-categories-section">
         <div className="browser-section-heading on-dark">
           <div>
-            <h2>Preset Categories</h2>
-            <span>Browse the larger historical and community buckets the way the live game presents them.</span>
+            <h2>Categories de presets</h2>
+            <span>Parcourez les familles historiques et communautaires dans un format proche du live.</span>
           </div>
           <div className="dark-category-tabs">
             {allCategories.map((category) => (
@@ -204,8 +204,8 @@ export function PresetBrowserPage(props: {
       <section className="preset-browser-section split-browser-section">
         <div className="split-browser-column">
           <div className="browser-section-heading">
-            <h2>Popular Community Presets</h2>
-            <span>Playful, messy, and often the fastest way to get unexpected chronology.</span>
+            <h2>Presets communaute populaires</h2>
+            <span>Des mondes plus chaotiques, ideaux pour des chronologies inattendues.</span>
           </div>
           <div className="compact-preset-grid is-tall">
             {communityPresets.map((preset) => (
@@ -216,11 +216,11 @@ export function PresetBrowserPage(props: {
 
         <div className="split-browser-column compact-sidebar">
           <div className="browser-section-heading">
-            <h2>Recent Local Games</h2>
-            <span>Resume the last sessions created in this workspace.</span>
+            <h2>Parties locales recentes</h2>
+            <span>Reprenez les dernieres sessions creees sur ce workspace.</span>
           </div>
           <div className="mini-session-list">
-            {props.recentGames.length === 0 && <div className="browser-empty">No sessions yet.</div>}
+            {props.recentGames.length === 0 && <div className="browser-empty">Aucune session pour l'instant.</div>}
             {props.recentGames.slice(0, 4).map((game) => (
               <MiniSessionCard key={game.id} game={game} />
             ))}
