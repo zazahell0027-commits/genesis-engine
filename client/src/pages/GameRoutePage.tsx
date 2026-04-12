@@ -24,6 +24,7 @@ import {
   SparkIcon,
   formatMoney
 } from "../components/Icons";
+import { OverlayHeading } from "../features/game/ui/OverlayHeading";
 
 type OverlayPanel = "events" | "actions" | "chats" | "search" | "menu" | "none";
 type RightPanel = "advisor" | "timeline" | "none";
@@ -583,13 +584,11 @@ export function GameRoutePage(props: {
 
         {panel === "events" && (
           <section className="overlay-panel events-panel left-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>{game.eventWindow.title}</h2>
-                <p>{game.eventWindow.rangeLabel}</p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title={game.eventWindow.title}
+              subtitle={game.eventWindow.rangeLabel}
+              onClose={() => setPanel("none")}
+            />
 
             {activeEvent ? (
               <>
@@ -644,13 +643,11 @@ export function GameRoutePage(props: {
 
         {rightPanel === "timeline" && (
           <aside className="timeline-panel right-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>Chronologie</h2>
-                <p>{snapshot ? "Lecture d'un snapshot historique" : "Rounds les plus recents"}</p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setRightPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title="Chronologie"
+              subtitle={snapshot ? "Lecture d'un snapshot historique" : "Rounds les plus recents"}
+              onClose={() => setRightPanel("none")}
+            />
             <div className="timeline-list">
               {game.timeline.map((entry) => (
                 <button
@@ -678,13 +675,11 @@ export function GameRoutePage(props: {
 
         {panel === "actions" && (
           <section className="overlay-panel side-panel left-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>Actions</h2>
-                <p>{`${game.actionPoints}/${game.maxActionPoints} points d'action disponibles`}</p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title="Actions"
+              subtitle={`${game.actionPoints}/${game.maxActionPoints} points d'action disponibles`}
+              onClose={() => setPanel("none")}
+            />
 
             {selectedCountry && (
               <div className="selected-country-card">
@@ -756,13 +751,11 @@ export function GameRoutePage(props: {
 
         {panel === "chats" && (
           <section className="overlay-panel side-panel left-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>Chats diplomatiques</h2>
-                <p>La diplomatie textuelle influe directement sur les rounds et les evenements.</p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title="Chats diplomatiques"
+              subtitle="La diplomatie textuelle influe directement sur les rounds et les evenements."
+              onClose={() => setPanel("none")}
+            />
 
             <label className="field-block">
               <span>Pays cible</span>
@@ -813,17 +806,15 @@ export function GameRoutePage(props: {
 
         {rightPanel === "advisor" && (
           <section className="overlay-panel side-panel advisor-panel right-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>Conseiller</h2>
-                <p>
-                  {viewedSnapshotId
-                    ? "Mode historique: analyse basee sur le snapshot selectionne."
-                    : "Analyse contextuelle du round courant et des pressions mondiales."}
-                </p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setRightPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title="Conseiller"
+              subtitle={
+                viewedSnapshotId
+                  ? "Mode historique: analyse basee sur le snapshot selectionne."
+                  : "Analyse contextuelle du round courant et des pressions mondiales."
+              }
+              onClose={() => setRightPanel("none")}
+            />
 
             <div className="advisor-summary">
               <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
@@ -917,13 +908,11 @@ export function GameRoutePage(props: {
 
         {panel === "search" && (
           <section className="overlay-panel search-panel left-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>Recherche de pays</h2>
-                <p>Selectionnez rapidement un pays pour recentrer vos decisions.</p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title="Recherche de pays"
+              subtitle="Selectionnez rapidement un pays pour recentrer vos decisions."
+              onClose={() => setPanel("none")}
+            />
 
             <label className="field-block">
               <span>Recherche</span>
@@ -960,13 +949,11 @@ export function GameRoutePage(props: {
 
         {panel === "menu" && (
           <section className="overlay-panel menu-panel left-column-panel">
-            <div className="overlay-heading">
-              <div>
-                <h2>Menu avance</h2>
-                <p>Contexte de session, rythme temporel et navigation rapide.</p>
-              </div>
-              <button type="button" className="close-button" onClick={() => setPanel("none")}>x</button>
-            </div>
+            <OverlayHeading
+              title="Menu avance"
+              subtitle="Contexte de session, rythme temporel et navigation rapide."
+              onClose={() => setPanel("none")}
+            />
 
             <div className="menu-grid">
               <article className="menu-card">

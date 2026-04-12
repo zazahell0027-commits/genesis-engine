@@ -1,13 +1,16 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import type { GameSessionSummary, PresetBrowserPayload } from "@genesis/shared";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { getPresetBrowser, getPresetCategories, listGames } from "./api";
 import { ChromeHeader } from "./components/ChromeHeader";
 import { formatMoney } from "./components/Icons";
 import { LaunchPresetModal } from "./components/LaunchPresetModal";
-import { GameRoutePage } from "./pages/GameRoutePage";
-import { CommunityPage, FlagsPage, GamesPage } from "./pages/LibraryPages";
-import { PresetBrowserPage } from "./pages/PresetBrowserPage";
+
+const PresetBrowserPage = lazy(() => import("./pages/PresetBrowserPage").then((module) => ({ default: module.PresetBrowserPage })));
+const GamesPage = lazy(() => import("./pages/LibraryPages").then((module) => ({ default: module.GamesPage })));
+const FlagsPage = lazy(() => import("./pages/LibraryPages").then((module) => ({ default: module.FlagsPage })));
+const CommunityPage = lazy(() => import("./pages/LibraryPages").then((module) => ({ default: module.CommunityPage })));
+const GameRoutePage = lazy(() => import("./pages/GameRoutePage").then((module) => ({ default: module.GameRoutePage })));
 
 export default function App(): React.JSX.Element {
   const location = useLocation();
@@ -73,43 +76,53 @@ export default function App(): React.JSX.Element {
       <ChromeHeader tokenLabel={tokenLabel} isGameRoute={location.pathname.startsWith("/game/")} />
       {error && <div className="global-error-banner">{error}</div>}
 
-      <Routes>
-        <Route
-          path="/"
-          element={(
-            <PresetBrowserPage
-              title="Alternate history presets"
-              eyebrow="Selection phare"
-              description="Parcourez les mondes officiels et communautaires puis lancez une partie plein ecran style Pax."
-              browserData={browserData}
-              loading={loadingChrome}
-              recentGames={recentGames}
-              onLaunchPreset={setLaunchPresetId}
-            />
-          )}
-        />
-        <Route
-          path="/presets"
-          element={(
-            <PresetBrowserPage
-              title="Presets"
-              eyebrow="Navigateur de contenu"
-              description="Navigateur a rails, categories et fiches de lancement rapides."
-              browserData={browserData}
-              loading={loadingChrome}
-              recentGames={recentGames}
-              onLaunchPreset={setLaunchPresetId}
-            />
-          )}
-        />
-        <Route path="/games" element={<GamesPage recentGames={recentGames} loading={loadingChrome} />} />
-        <Route path="/flags" element={<FlagsPage />} />
-        <Route path="/community" element={<CommunityPage />} />
-        <Route
-          path="/game/:gameId"
-          element={<GameRoutePage onError={setError} onTokenBalanceChange={setTokenBalanceOverride} onRefreshGames={refreshGames} />}
-        />
-      </Routes>
+      <Suspense
+        fallback={(
+          <main className="route-page">
+            <section className="content-section">
+              <div className="empty-panel">Loading interface...</div>
+            </section>
+          </main>
+        )}
+      >
+        <Routes>
+          <Route
+            path="/"
+            element={(
+              <PresetBrowserPage
+                title="Alternate history presets"
+                eyebrow="Selection phare"
+                description="Parcourez les mondes officiels et communautaires puis lancez une partie plein ecran style Pax."
+                browserData={browserData}
+                loading={loadingChrome}
+                recentGames={recentGames}
+                onLaunchPreset={setLaunchPresetId}
+              />
+            )}
+          />
+          <Route
+            path="/presets"
+            element={(
+              <PresetBrowserPage
+                title="Presets"
+                eyebrow="Navigateur de contenu"
+                description="Navigateur a rails, categories et fiches de lancement rapides."
+                browserData={browserData}
+                loading={loadingChrome}
+                recentGames={recentGames}
+                onLaunchPreset={setLaunchPresetId}
+              />
+            )}
+          />
+          <Route path="/games" element={<GamesPage recentGames={recentGames} loading={loadingChrome} />} />
+          <Route path="/flags" element={<FlagsPage />} />
+          <Route path="/community" element={<CommunityPage />} />
+          <Route
+            path="/game/:gameId"
+            element={<GameRoutePage onError={setError} onTokenBalanceChange={setTokenBalanceOverride} onRefreshGames={refreshGames} />}
+          />
+        </Routes>
+      </Suspense>
 
       <LaunchPresetModal
         preset={activePreset}

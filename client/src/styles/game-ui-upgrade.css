@@ -1,0 +1,286 @@
+.app-shell.is-game-route {
+  --game-header-height: 5.9rem;
+  --hud-gap: clamp(0.55rem, 0.9vw, 1rem);
+  --hud-button-size: clamp(2.55rem, 2.7vw, 2.95rem);
+  --left-panel-width: clamp(316px, 24.5vw, 388px);
+  --right-panel-width: clamp(302px, 22vw, 358px);
+  --events-panel-width: clamp(336px, 26vw, 420px);
+  --panel-top: calc(var(--game-header-height) + var(--hud-gap));
+  --panel-bottom-safe: clamp(5.4rem, 9.5vh, 6.2rem);
+}
+
+.app-shell.is-game-route .game-route {
+  padding-top: var(--game-header-height);
+}
+
+.app-shell.is-game-route .game-stage {
+  min-height: calc(100dvh - var(--game-header-height));
+}
+
+.app-shell.is-game-route .floating-corner-button,
+.app-shell.is-game-route .floating-profile-button,
+.app-shell.is-game-route .dock-button,
+.app-shell.is-game-route .capsule-arrow,
+.app-shell.is-game-route .timeline-toggle-button {
+  width: var(--hud-button-size);
+  height: var(--hud-button-size);
+  border-radius: 0.9rem;
+}
+
+.app-shell.is-game-route .floating-corner-button {
+  left: var(--hud-gap);
+  top: var(--hud-gap);
+}
+
+.app-shell.is-game-route .jump-capsule {
+  right: var(--hud-gap);
+  top: var(--hud-gap);
+  border-radius: 1.1rem;
+  gap: 0.5rem;
+  padding: 0.48rem;
+}
+
+.app-shell.is-game-route .jump-capsule-copy {
+  min-width: clamp(10.4rem, 15vw, 12.1rem);
+}
+
+.app-shell.is-game-route .timeline-toggle-button {
+  top: calc(var(--hud-gap) + var(--hud-button-size) + 0.52rem);
+  right: var(--hud-gap);
+}
+
+.app-shell.is-game-route .floating-dock {
+  left: var(--hud-gap);
+  bottom: var(--hud-gap);
+  padding: 0.52rem;
+  gap: 0.5rem;
+  border-radius: 1.08rem;
+}
+
+.app-shell.is-game-route .floating-profile-button {
+  right: var(--hud-gap);
+  bottom: var(--hud-gap);
+}
+
+.app-shell.is-game-route .game-status-pill {
+  top: var(--hud-gap);
+  border-radius: 0.95rem;
+  padding: 0.62rem 0.82rem;
+}
+
+.app-shell.is-game-route .game-busy-banner {
+  top: calc(var(--hud-gap) + var(--hud-button-size) + 0.92rem);
+}
+
+.app-shell.is-game-route .context-quick-strip {
+  bottom: calc(var(--hud-gap) + var(--hud-button-size) + 0.15rem);
+}
+
+.app-shell.is-game-route .world-map-tools {
+  left: calc(var(--hud-gap) + var(--hud-button-size) + 0.58rem);
+  top: var(--hud-gap);
+  gap: 0.38rem;
+}
+
+.app-shell.is-game-route .map-mode-row,
+.app-shell.is-game-route .map-tool-row {
+  gap: 0.38rem;
+}
+
+.app-shell.is-game-route .map-tool-button {
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 0.68rem;
+}
+
+.app-shell.is-game-route .map-tool-button.mode-button {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.app-shell.is-game-route .world-map-legend {
+  left: calc(var(--hud-gap) + var(--hud-button-size) + 0.58rem);
+  top: calc(var(--hud-gap) + 5.22rem);
+  border-radius: 0.82rem;
+  padding: 0.45rem 0.58rem;
+  gap: 0.45rem;
+}
+
+.app-shell.is-game-route .overlay-panel,
+.app-shell.is-game-route .timeline-panel {
+  border-radius: 1.28rem;
+}
+
+.app-shell.is-game-route .events-panel,
+.app-shell.is-game-route .side-panel,
+.app-shell.is-game-route .search-panel,
+.app-shell.is-game-route .menu-panel,
+.app-shell.is-game-route .timeline-panel {
+  top: var(--panel-top);
+  max-height: calc(100dvh - var(--panel-top) - var(--panel-bottom-safe));
+  padding: 0.95rem;
+}
+
+.app-shell.is-game-route .events-panel {
+  width: min(var(--events-panel-width), calc(100vw - (2 * var(--hud-gap))));
+}
+
+.app-shell.is-game-route .side-panel,
+.app-shell.is-game-route .search-panel,
+.app-shell.is-game-route .menu-panel {
+  width: min(var(--left-panel-width), calc(100vw - (2 * var(--hud-gap))));
+}
+
+.app-shell.is-game-route .timeline-panel {
+  width: min(var(--right-panel-width), calc(100vw - (2 * var(--hud-gap))));
+}
+
+.app-shell.is-game-route .events-panel > .overlay-heading,
+.app-shell.is-game-route .side-panel > .overlay-heading,
+.app-shell.is-game-route .search-panel > .overlay-heading,
+.app-shell.is-game-route .menu-panel > .overlay-heading,
+.app-shell.is-game-route .timeline-panel > .overlay-heading {
+  margin: -0.16rem -0.16rem 0.6rem;
+  padding: 0.18rem 0.16rem 0.7rem;
+}
+
+.app-shell.is-game-route .overlay-heading h2 {
+  font-size: clamp(1.26rem, 1.28vw, 1.68rem);
+  margin: 0;
+}
+
+.app-shell.is-game-route .overlay-heading p {
+  margin: 0.28rem 0 0;
+  font-size: 0.89rem;
+  line-height: 1.45;
+}
+
+.app-shell.is-game-route .close-button {
+  width: 2.02rem;
+  height: 2.02rem;
+  font-size: 1.15rem;
+}
+
+.app-shell.is-game-route .field-block input,
+.app-shell.is-game-route .field-block select,
+.app-shell.is-game-route .large-textarea {
+  min-height: 2.7rem;
+}
+
+.app-shell.is-game-route .large-textarea {
+  min-height: 7.1rem;
+}
+
+.app-shell.is-game-route .map-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 12;
+  background: linear-gradient(180deg, rgba(6, 14, 30, 0.22), rgba(6, 14, 30, 0.42));
+  pointer-events: none;
+}
+
+.app-shell.is-game-route .map-loading-overlay.is-error {
+  background: linear-gradient(180deg, rgba(40, 11, 25, 0.35), rgba(25, 12, 24, 0.5));
+}
+
+.app-shell.is-game-route .map-loading-card {
+  width: min(420px, calc(100vw - 2rem));
+  padding: 1rem 1.12rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(145, 168, 235, 0.36);
+  background: rgba(10, 18, 37, 0.88);
+  color: rgba(235, 242, 255, 0.98);
+  text-align: center;
+  box-shadow: 0 24px 54px rgba(5, 9, 18, 0.35);
+}
+
+.app-shell.is-game-route .map-loading-card strong,
+.app-shell.is-game-route .map-loading-card span {
+  display: block;
+}
+
+.app-shell.is-game-route .map-loading-card span {
+  color: rgba(213, 224, 255, 0.72);
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 1440px) {
+  .app-shell.is-game-route {
+    --left-panel-width: clamp(304px, 28vw, 356px);
+    --events-panel-width: clamp(322px, 30vw, 388px);
+    --right-panel-width: clamp(286px, 24vw, 336px);
+  }
+}
+
+@media (max-width: 1100px) {
+  .app-shell.is-game-route .game-status-pill {
+    display: none;
+  }
+
+  .app-shell.is-game-route .world-map-tools,
+  .app-shell.is-game-route .world-map-legend {
+    left: var(--hud-gap);
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell.is-game-route .context-quick-strip {
+    display: none;
+  }
+
+  .app-shell.is-game-route .events-panel,
+  .app-shell.is-game-route .side-panel,
+  .app-shell.is-game-route .search-panel,
+  .app-shell.is-game-route .menu-panel,
+  .app-shell.is-game-route .timeline-panel {
+    left: 0.68rem;
+    right: 0.68rem;
+    width: auto;
+    top: auto;
+    bottom: calc(var(--hud-gap) + var(--hud-button-size) + 0.42rem);
+    max-height: 54dvh;
+  }
+
+  .app-shell.is-game-route .right-column-panel {
+    bottom: calc(var(--hud-gap) + var(--hud-button-size) + 54dvh + 0.78rem);
+    max-height: 34dvh;
+  }
+
+  .app-shell.is-game-route .jump-capsule {
+    left: calc(var(--hud-gap) + var(--hud-button-size) + 0.56rem);
+    right: var(--hud-gap);
+  }
+
+  .app-shell.is-game-route .timeline-toggle-button {
+    top: calc(var(--hud-gap) + var(--hud-button-size) + 0.52rem);
+  }
+
+  .app-shell.is-game-route .game-busy-banner {
+    left: var(--hud-gap);
+    right: var(--hud-gap);
+    transform: none;
+    min-width: 0;
+  }
+}
+
+@media (max-height: 820px) {
+  .app-shell.is-game-route {
+    --panel-bottom-safe: 5rem;
+  }
+
+  .app-shell.is-game-route .events-panel,
+  .app-shell.is-game-route .side-panel,
+  .app-shell.is-game-route .search-panel,
+  .app-shell.is-game-route .menu-panel,
+  .app-shell.is-game-route .timeline-panel {
+    max-height: calc(100dvh - var(--panel-top) - var(--panel-bottom-safe));
+  }
+
+  .app-shell.is-game-route .large-textarea {
+    min-height: 5.9rem;
+  }
+}

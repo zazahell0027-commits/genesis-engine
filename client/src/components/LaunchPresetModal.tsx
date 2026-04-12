@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { CountryDescriptor, GameSetupOptions, GameState, PresetSummary } from "@genesis/shared";
 import { getCountries, getSetupOptions, startGame } from "../api";
 
@@ -62,12 +62,29 @@ export function LaunchPresetModal(props: {
     };
   }, [props.open, props.preset, props.onError]);
 
-  if (!props.open || !props.preset) return null;
+  useEffect(() => {
+    if (!props.open) return;
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === "Escape") props.onClose();
+    }
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [props.open, props.onClose]);
 
-  const filteredCountries = countries.filter((country) => normalize(country.name).includes(normalize(countrySearch)));
-  const recommended = (setupOptions?.recommendedCountries ?? [])
-    .map((id) => countries.find((country) => country.id === id) ?? null)
-    .filter((country): country is CountryDescriptor => Boolean(country));
+  const filteredCountries = useMemo(
+    () => countries.filter((country) => normalize(country.name).includes(normalize(countrySearch))),
+    [countries, countrySearch]
+  );
+  const recommended = useMemo(
+    () => (setupOptions?.recommendedCountries ?? [])
+      .map((id) => countries.find((country) => country.id === id) ?? null)
+      .filter((country): country is CountryDescriptor => Boolean(country)),
+    [setupOptions, countries]
+  );
+
+  if (!props.open || !props.preset) return null;
 
   async function handleStartGame(): Promise<void> {
     if (!props.preset || !countryId) return;
@@ -100,9 +117,7 @@ export function LaunchPresetModal(props: {
               <h2>{props.preset.title}</h2>
               <p>{props.preset.subtitle}</p>
             </div>
-            <button type="button" className="close-button" onClick={props.onClose}>
-              ×
-            </button>
+            <button type="button" className="close-button" onClick={props.onClose}>x</button>
           </div>
 
           {loading && <div className="empty-panel">Loading setup options...</div>}

@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CountryState, MapArtifact, MapEffect, PresetSummary } from "@genesis/shared";
-import rawWorldGeo from "../assets/world_countries_slim.json";
-import rawEuropeProvinceGeo from "../assets/europe_provinces.json";
 
 type ViewBox = {
   x: number;
@@ -94,8 +92,6 @@ type ProvinceFeature = Feature & {
 
 type OverlayMode = "balanced" | "tension" | "army" | "fortification" | "industry";
 
-const geoData = rawWorldGeo as GeoFeatureCollection;
-const provinceGeoData = rawEuropeProvinceGeo as GeoFeatureCollection;
 const DEFAULT_VIEWBOX: ViewBox = { x: 0, y: 0, width: 100, height: 50 };
 const COUNTRY_PALETTE = [
   "#c9b49a",
@@ -299,53 +295,57 @@ function overlayModeLabel(mode: OverlayMode): string {
   return "industrie";
 }
 
-const FEATURES: Feature[] = geoData.features
-  .map((feature, index) => {
-    const rings = toRings(feature.geometry);
-    if (rings.length === 0) return null;
+function buildCountryFeatures(geoData: GeoFeatureCollection): Feature[] {
+  return geoData.features
+    .map((feature, index) => {
+      const rings = toRings(feature.geometry);
+      if (rings.length === 0) return null;
 
-    const name = String(feature.properties.name ?? feature.properties.admin ?? "Unknown");
-    const projected = ringsPath(rings);
-    return {
-      id: index,
-      countryId: normalize(name),
-      name,
-      path: projected.path,
-      centroid: projected.centroid,
-      bbox: projected.bbox
-    } as Feature;
-  })
-  .filter((item): item is Feature => Boolean(item));
+      const name = String(feature.properties.name ?? feature.properties.admin ?? "Unknown");
+      const projected = ringsPath(rings);
+      return {
+        id: index,
+        countryId: normalize(name),
+        name,
+        path: projected.path,
+        centroid: projected.centroid,
+        bbox: projected.bbox
+      } as Feature;
+    })
+    .filter((item): item is Feature => Boolean(item));
+}
 
-const PROVINCE_FEATURES: ProvinceFeature[] = provinceGeoData.features
-  .map((feature, index) => {
-    const rings = toRings(feature.geometry);
-    if (rings.length === 0) return null;
+function buildProvinceFeatures(provinceGeoData: GeoFeatureCollection): ProvinceFeature[] {
+  return provinceGeoData.features
+    .map((feature, index) => {
+      const rings = toRings(feature.geometry);
+      if (rings.length === 0) return null;
 
-    const provinceName = String(
-      feature.properties.name
-      ?? feature.properties.NAME_1
-      ?? feature.properties.name_en
-      ?? "Province"
-    );
-    const provinceId = normalize(String(feature.properties.id ?? `${provinceName}-${index}`));
-    const parentCountryId = resolveCountryId(feature.properties.countryId ?? feature.properties.country);
-    if (!parentCountryId) return null;
+      const provinceName = String(
+        feature.properties.name
+        ?? feature.properties.NAME_1
+        ?? feature.properties.name_en
+        ?? "Province"
+      );
+      const provinceId = normalize(String(feature.properties.id ?? `${provinceName}-${index}`));
+      const parentCountryId = resolveCountryId(feature.properties.countryId ?? feature.properties.country);
+      if (!parentCountryId) return null;
 
-    const projected = ringsPath(rings);
-    return {
-      id: 100000 + index,
-      countryId: parentCountryId,
-      name: provinceName,
-      path: projected.path,
-      centroid: projected.centroid,
-      bbox: projected.bbox,
-      provinceId,
-      provinceName,
-      parentCountryId
-    } as ProvinceFeature;
-  })
-  .filter((item): item is ProvinceFeature => Boolean(item));
+      const projected = ringsPath(rings);
+      return {
+        id: 100000 + index,
+        countryId: parentCountryId,
+        name: provinceName,
+        path: projected.path,
+        centroid: projected.centroid,
+        bbox: projected.bbox,
+        provinceId,
+        provinceName,
+        parentCountryId
+      } as ProvinceFeature;
+    })
+    .filter((item): item is ProvinceFeature => Boolean(item));
+}
 
 export function WorldGeoMap({
   countries,
@@ -367,25 +367,69 @@ export function WorldGeoMap({
   const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEWBOX);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("balanced");
-  const showProvinceLayer = viewBox.width <= 68;
+  const [countryFeatures, setCountryFeatures] = useState<Feature[]>([]);
+  const [provinceFeatures, setProvinceFeatures] = useState<ProvinceFeature[]>([]);
+  const [mapLoadState, setMapLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMapData(): Promise<void> {
+      setMapLoadState("loading");
+      try {
+        const [worldModule, provincesModule] = await Promise.all([
+          import("../assets/world_countries_slim.json"),
+          import("../assets/europe_provinces.json")
+        ]);
+        if (cancelled) return;
+
+        const worldGeo = worldModule.default as GeoFeatureCollection;
+        const europeGeo = provincesModule.default as GeoFeatureCollection;
+        setCountryFeatures(buildCountryFeatures(worldGeo));
+        setProvinceFeatures(buildProvinceFeatures(europeGeo));
+        setMapLoadState("ready");
+      } catch {
+        if (cancelled) return;
+        setCountryFeatures([]);
+        setProvinceFeatures([]);
+        setMapLoadState("error");
+      }
+    }
+
+    void loadMapData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const showProvinceLayer = mapLoadState === "ready" && viewBox.width <= 68;
+  const mapReady = mapLoadState === "ready";
 
   const countriesById = useMemo(() => new Map(countries.map((country) => [country.id, country])), [countries]);
-  const featuresByCountry = useMemo(() => new Map(FEATURES.map((feature) => [feature.countryId, feature])), []);
-  const provinceById = useMemo(() => new Map(PROVINCE_FEATURES.map((feature) => [feature.provinceId, feature])), []);
+  const featuresByCountry = useMemo(
+    () => new Map(countryFeatures.map((feature) => [feature.countryId, feature])),
+    [countryFeatures]
+  );
+  const provinceById = useMemo(
+    () => new Map(provinceFeatures.map((feature) => [feature.provinceId, feature])),
+    [provinceFeatures]
+  );
   const selectedCountry = selectedCountryId ? countriesById.get(selectedCountryId) ?? null : null;
   const highlightedSet = useMemo(() => new Set(highlightedCountryIds ?? []), [highlightedCountryIds]);
   const resolvedEffects = mapEffects ?? [];
   const resolvedArtifacts = mapArtifacts ?? [];
-  const labelFeatures = FEATURES
-    .map((feature) => ({ feature, country: countriesById.get(feature.countryId) }))
-    .filter((item): item is { feature: Feature; country: CountryState } => Boolean(item.country))
-    .sort((a, b) => b.country.power - a.country.power)
-    .filter((item) => item.feature.bbox.width > 4.6 && item.feature.bbox.height > 1.4)
-    .slice(0, 11);
+  const labelFeatures = useMemo(
+    () => countryFeatures
+      .map((feature) => ({ feature, country: countriesById.get(feature.countryId) }))
+      .filter((item): item is { feature: Feature; country: CountryState } => Boolean(item.country))
+      .sort((a, b) => b.country.power - a.country.power)
+      .filter((item) => item.feature.bbox.width > 4.6 && item.feature.bbox.height > 1.4)
+      .slice(0, 11),
+    [countryFeatures, countriesById]
+  );
   const visibleProvinceFeatures = useMemo(
     () => (
       showProvinceLayer
-        ? PROVINCE_FEATURES.filter((feature) => countriesById.has(feature.parentCountryId))
+        ? provinceFeatures.filter((feature) => countriesById.has(feature.parentCountryId))
           .filter((feature) => !(
             feature.bbox.x > viewBox.x + viewBox.width ||
             feature.bbox.x + feature.bbox.width < viewBox.x ||
@@ -394,7 +438,7 @@ export function WorldGeoMap({
           ))
         : []
     ),
-    [showProvinceLayer, countriesById, viewBox]
+    [showProvinceLayer, provinceFeatures, countriesById, viewBox]
   );
 
   const effectMarkers = useMemo(() => {
@@ -585,7 +629,7 @@ export function WorldGeoMap({
 
   function focusOnSelected(): void {
     if (!selectedCountry) return;
-    const feature = FEATURES.find((item) => item.countryId === selectedCountry.id);
+    const feature = countryFeatures.find((item) => item.countryId === selectedCountry.id);
     if (!feature) return;
 
     const province = selectedProvinceId ? provinceById.get(selectedProvinceId) ?? null : null;
@@ -652,7 +696,7 @@ export function WorldGeoMap({
           <button type="button" className="map-tool-button" onClick={focusEurope}>
             Europe
           </button>
-          <button type="button" className="map-tool-button" onClick={focusOnSelected} disabled={!selectedCountry}>
+          <button type="button" className="map-tool-button" onClick={focusOnSelected} disabled={!selectedCountry || !mapReady}>
             Focus
           </button>
         </div>
@@ -724,7 +768,7 @@ export function WorldGeoMap({
             />
           ))}
 
-          {FEATURES.map((feature) => {
+          {countryFeatures.map((feature) => {
             const country = countriesById.get(feature.countryId);
             const isSelected = selectedCountryId === feature.countryId;
             const isImpacted = highlightedSet.has(feature.countryId);
@@ -738,7 +782,7 @@ export function WorldGeoMap({
                 strokeWidth={isSelected ? 0.34 : 0.16}
                 className={`country-shape${country ? " active" : ""}${isSelected ? " is-selected" : ""}${isImpacted ? " has-impact" : ""}`}
                 onClick={() => {
-                  if (!country) return;
+                  if (!country || !mapReady) return;
                   onSelectCountry(country.id);
                 }}
                 onMouseMove={(event) => {
@@ -860,6 +904,19 @@ export function WorldGeoMap({
             );
           })}
         </svg>
+
+        {!mapReady && (
+          <div className={`map-loading-overlay${mapLoadState === "error" ? " is-error" : ""}`}>
+            <div className="map-loading-card">
+              <strong>{mapLoadState === "error" ? "Map load failed" : "Loading world map..."}</strong>
+              <span>
+                {mapLoadState === "error"
+                  ? "The GeoJSON dataset could not be loaded. Retry by refreshing the page."
+                  : "Preparing countries, provinces, and tactical overlays."}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {tooltip && (
