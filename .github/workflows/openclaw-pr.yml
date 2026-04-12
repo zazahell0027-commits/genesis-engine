@@ -1,0 +1,60 @@
+name: OpenClaw PR Webhook
+
+on:
+  # V1: trigger only on requested PR events.
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+# Prevent parallel runs for the same PR.
+# If a new commit arrives, the previous run is cancelled.
+concurrency:
+  group: openclaw-pr-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  notify-openclaw:
+    name: Send PR payload to OpenClaw
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Build payload and call OpenClaw webhook
+        env:
+          OPENCLAW_WEBHOOK_URL: ${{ secrets.OPENCLAW_WEBHOOK_URL }}
+          OPENCLAW_WEBHOOK_TOKEN: ${{ secrets.OPENCLAW_WEBHOOK_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+        run: |
+          # Safety: fail fast if webhook secrets are missing.
+          if [ -z "$OPENCLAW_WEBHOOK_URL" ] || [ -z "$OPENCLAW_WEBHOOK_TOKEN" ]; then
+            echo "Missing OPENCLAW_WEBHOOK_URL or OPENCLAW_WEBHOOK_TOKEN secret."
+            exit 1
+          fi
+
+          # Minimal JSON payload required by OpenClaw.
+          payload=$(cat <<JSON
+          {
+            "repository": "$REPOSITORY",
+            "pr_number": $PR_NUMBER,
+            "head_sha": "$HEAD_SHA",
+            "event_name": "$EVENT_NAME",
+            "action": "$ACTION"
+          }
+          JSON
+          )
+
+          # OpenClaw webhook call (V1: no @codex comment, no labels).
+          curl --fail --silent --show-error \
+            -X POST "$OPENCLAW_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENCLAW_WEBHOOK_TOKEN" \
+            --data "$payload"
