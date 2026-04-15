@@ -1,0 +1,95 @@
+/* V3 UI overrides: less permanent warfare, cleaner map-first layout */
+
+.context-quick-strip {
+  display: none !important;
+}
+
+.quick-action-row {
+  display: none !important;
+}
+
+.game-stage {
+  background: linear-gradient(180deg, #9ac9f6 0%, #78aee4 100%);
+}
+
+.side-panel,
+.search-panel,
+.menu-panel {
+  top: auto;
+  bottom: 1rem;
+  max-height: min(34vh, 360px);
+}
+
+.events-panel {
+  max-height: min(52vh, 560px);
+}
+
+.game-status-pill {
+  min-width: 16rem;
+  text-align: center;
+}
+
+.floating-dock {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 1rem;
+}
+
+.game-busy-banner {
+  top: 7.9rem;
+}
+
+.selected-country-card {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.large-textarea {
+  min-height: 6.6rem;
+}
+
+.panel-command-bar {
+  position: sticky;
+  bottom: 0;
+  padding-top: 0.85rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.92) 28%);
+}
+
+.contextual-war-note {
+  margin-top: 0.85rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 1rem;
+  border: 1px dashed rgba(132, 70, 248, 0.28);
+  background: rgba(246, 240, 255, 0.86);
+  color: #584b7e;
+  line-height: 1.45;
+}
+
+.contextual-war-note strong,
+.contextual-war-note span {
+  display: block;
+}
+
+.contextual-war-note span {
+  margin-top: 0.22rem;
+  color: #6a6185;
+}
+
+@media (max-width: 820px) {
+  .side-panel,
+  .search-panel,
+  .menu-panel {
+    bottom: 5.6rem;
+    max-height: 44vh;
+  }
+
+  .quick-action-row {
+    display: none !important;
+  }
+
+  .floating-dock {
+    left: 0.75rem;
+    right: 0.75rem;
+    transform: none;
+    justify-content: center;
+  }
+}
