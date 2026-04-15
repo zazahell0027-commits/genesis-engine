@@ -25,6 +25,11 @@ export type WorldNarrativeInput = {
   timelineContextText?: string;
   advisorQuestion?: string;
   latestEventText?: string;
+  // Nouveaux champs pour le narrateur
+  narrativeContext?: string; // contexte narratif global
+  narrativeMemory?: string[]; // mémoire des événements narrés
+  upcomingEvent?: string; // prochain événement à venir
+  eventDecision?: string; // décision d'événement à proposer
 };
 
 export type OrderInterpretationInput = {
@@ -95,4 +100,12 @@ export type AIProvider = {
   interpretOrder(input: OrderInterpretationInput): Promise<OrderInterpretation>;
   generateDiplomacyReply(input: DiplomacyReplyInput): Promise<DiplomacyReply>;
   generateRoundNarrative(input: RoundNarrativeInput): Promise<RoundNarrative>;
+  // Nouveaux méthodes pour le narrateur
+  generateNarrativeDecision(input: {
+    year: number;
+    month: number;
+    narrativeContext?: string;
+    narrativeMemory?: string[];
+  }): Promise<string>;
+  updateNarrativeMemory(memory: string[]): Promise<void>;
 };

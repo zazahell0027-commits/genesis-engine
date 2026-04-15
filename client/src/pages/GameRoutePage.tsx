@@ -11,7 +11,7 @@ import {
   removeOrder,
   sendDiplomacy
 } from "../api";
-import { WorldGeoMap } from "../components/WorldGeoMap";
+import { MapLibreWorldMap } from "../components/MapLibreWorldMap";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -625,7 +625,7 @@ export function GameRoutePage(props: {
           <CalendarIcon />
         </button>
 
-        <WorldGeoMap
+        <MapLibreWorldMap
           countries={activeCountries}
           preset={game.preset}
           selectedCountryId={selectedCountry?.id ?? null}
