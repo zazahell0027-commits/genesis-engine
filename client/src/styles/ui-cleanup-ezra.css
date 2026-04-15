@@ -1,0 +1,4 @@
+.app-shell.is-game-route .context-quick-strip,
+.app-shell.is-game-route .quick-action-row {
+  display: none !important;
+}
