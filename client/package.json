@@ -11,10 +11,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@genesis/shared": "0.1.0",
+    "maplibre-gl": "^5.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.6.1",
-    "@genesis/shared": "0.1.0"
+    "react-router-dom": "^7.6.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.10",
