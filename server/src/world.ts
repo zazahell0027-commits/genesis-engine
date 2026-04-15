@@ -107,10 +107,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Pax Historia",
     accent: "#7c3aed",
     mapPalette: {
-      oceanTop: "#91cbff",
-      oceanBottom: "#6da5df",
-      landStroke: "#141312",
-      labelColor: "rgba(60, 55, 52, 0.55)"
+      oceanTop: "#12365f",
+      oceanBottom: "#030d1b",
+      landStroke: "#0d1320",
+      labelColor: "rgba(236, 242, 252, 0.5)"
     },
     recommendedCountries: ["germany", "united kingdom", "france", "japan", "italy"],
     description: "A classic war-heavy entry point with fast-changing fronts, high pressure diplomacy, and constant escalation."
@@ -134,10 +134,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Pax Historia",
     accent: "#9f67ff",
     mapPalette: {
-      oceanTop: "#88c2ff",
-      oceanBottom: "#5f95d9",
-      landStroke: "#191410",
-      labelColor: "rgba(62, 57, 54, 0.46)"
+      oceanTop: "#143b68",
+      oceanBottom: "#030d1b",
+      landStroke: "#0d1321",
+      labelColor: "rgba(236, 242, 252, 0.5)"
     },
     recommendedCountries: ["united states", "china", "russia", "india", "turkey"],
     description: "The most familiar sandbox: alliances, trade pressure, cyber posturing, and high-speed narrative pivots."
@@ -161,10 +161,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Community",
     accent: "#6366f1",
     mapPalette: {
-      oceanTop: "#9fcbff",
-      oceanBottom: "#70a7ea",
-      landStroke: "#17110d",
-      labelColor: "rgba(62, 59, 56, 0.42)"
+      oceanTop: "#133862",
+      oceanBottom: "#04111f",
+      landStroke: "#0d1320",
+      labelColor: "rgba(234, 240, 251, 0.48)"
     },
     recommendedCountries: ["poland", "iran", "ukraine", "saudi arabia", "japan"],
     description: "A busier modern setup with more pressure points and more opportunities for regional divergence."
@@ -188,10 +188,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Community",
     accent: "#d97706",
     mapPalette: {
-      oceanTop: "#95c7ff",
-      oceanBottom: "#729fdb",
-      landStroke: "#21150d",
-      labelColor: "rgba(71, 54, 38, 0.43)"
+      oceanTop: "#15385d",
+      oceanBottom: "#06111f",
+      landStroke: "#12121b",
+      labelColor: "rgba(239, 239, 244, 0.46)"
     },
     recommendedCountries: ["united kingdom", "france", "russia", "italy", "japan"],
     description: "A slower-burn sandbox centered on prestige, industrial growth, and power-balancing between empires."
@@ -215,10 +215,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Community",
     accent: "#ef4444",
     mapPalette: {
-      oceanTop: "#7cb9ff",
-      oceanBottom: "#547fb9",
-      landStroke: "#151111",
-      labelColor: "rgba(88, 56, 56, 0.46)"
+      oceanTop: "#103760",
+      oceanBottom: "#030d1b",
+      landStroke: "#11121a",
+      labelColor: "rgba(239, 240, 247, 0.48)"
     },
     recommendedCountries: ["brazil", "india", "turkey", "nigeria", "mexico"],
     description: "A high-volatility scenario built for spectacle, sudden crises, and dramatic maps."
@@ -242,10 +242,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Community",
     accent: "#ec4899",
     mapPalette: {
-      oceanTop: "#8cc5ff",
-      oceanBottom: "#6798db",
-      landStroke: "#181211",
-      labelColor: "rgba(64, 55, 63, 0.45)"
+      oceanTop: "#143861",
+      oceanBottom: "#04101c",
+      landStroke: "#11131c",
+      labelColor: "rgba(235, 238, 249, 0.48)"
     },
     recommendedCountries: ["france", "mexico", "egypt", "japan", "argentina"],
     description: "A freer-form prompt-driven experience where political identity matters as much as hard power."
@@ -269,10 +269,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Community",
     accent: "#22c55e",
     mapPalette: {
-      oceanTop: "#8abfff",
-      oceanBottom: "#6294d8",
-      landStroke: "#181612",
-      labelColor: "rgba(49, 64, 53, 0.42)"
+      oceanTop: "#123860",
+      oceanBottom: "#04111d",
+      landStroke: "#0d1420",
+      labelColor: "rgba(236, 242, 249, 0.48)"
     },
     recommendedCountries: ["united states", "canada", "mexico", "brazil", "cuba"],
     description: "Loose blocs and splinter states make this preset ideal for regional plays and tense negotiations."
@@ -296,10 +296,10 @@ const PRESETS: PresetSummary[] = [
     creator: "Community",
     accent: "#14b8a6",
     mapPalette: {
-      oceanTop: "#85c1ff",
-      oceanBottom: "#5f8ed2",
-      landStroke: "#17120f",
-      labelColor: "rgba(50, 64, 67, 0.42)"
+      oceanTop: "#12375f",
+      oceanBottom: "#04101c",
+      landStroke: "#0d131d",
+      labelColor: "rgba(235, 243, 250, 0.48)"
     },
     recommendedCountries: ["india", "china", "united states", "nigeria", "indonesia"],
     description: "An intentionally noisy sandbox designed around scale, emergent chaos, and player-like pacing."
@@ -776,6 +776,7 @@ export function createSnapshot(game: GameState, summary: string, eventIds: strin
 
 export function saveGame(game: GameState): void {
   game.mapArtifacts = game.mapArtifacts ?? [];
+  game.preset = getPresetById(game.presetId);
   game.snapshots = (game.snapshots ?? []).map((snapshot) => ({
     ...snapshot,
     mapArtifacts: (snapshot.mapArtifacts ?? []).map((artifact) => ({ ...artifact }))

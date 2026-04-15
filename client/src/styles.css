@@ -137,6 +137,37 @@ svg {
   gap: 0.7rem;
 }
 
+.language-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.22rem;
+  border-radius: 999px;
+  border: 1px solid rgba(26, 28, 42, 0.1);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--shadow);
+}
+
+.language-pill {
+  border: 0;
+  border-radius: 999px;
+  min-width: 2.05rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #5a6172;
+  background: transparent;
+  cursor: pointer;
+}
+
+.language-pill.is-active {
+  color: #faf6ff;
+  background: linear-gradient(180deg, #9c68ff, #7b3af5);
+  box-shadow: 0 8px 16px rgba(125, 58, 245, 0.28);
+}
+
 .meta-icon-button,
 .profile-pill,
 .token-pill,
@@ -212,6 +243,129 @@ svg {
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
+}
+
+.scenario-hero {
+  position: relative;
+  min-height: clamp(22rem, 48vh, 34rem);
+  border-radius: 1.8rem;
+  border: 1px solid rgba(24, 34, 58, 0.2);
+  box-shadow: 0 28px 66px rgba(8, 12, 24, 0.32);
+  background-size: cover;
+  background-position: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 1rem;
+  padding: 2rem;
+  color: #f2f6ff;
+  overflow: hidden;
+}
+
+.scenario-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(86, 150, 255, 0.22), transparent 26%),
+    radial-gradient(circle at 75% 18%, rgba(146, 98, 255, 0.2), transparent 28%);
+  pointer-events: none;
+}
+
+.scenario-hero-copy,
+.scenario-hero-about {
+  position: relative;
+  z-index: 1;
+}
+
+.scenario-hero-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.85rem;
+}
+
+.scenario-hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(9, 16, 32, 0.62);
+  border: 1px solid rgba(193, 209, 255, 0.3);
+  color: rgba(223, 233, 255, 0.9);
+  font-size: 0.73rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.scenario-hero h1 {
+  margin: 0;
+  font-size: clamp(2.6rem, 4.3vw, 4.7rem);
+  letter-spacing: -0.05em;
+  line-height: 0.92;
+}
+
+.scenario-hero p {
+  margin: 0;
+  max-width: 56ch;
+  color: rgba(224, 233, 255, 0.84);
+  line-height: 1.5;
+}
+
+.scenario-hero-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.scenario-hero-metrics span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.38rem 0.62rem;
+  border-radius: 999px;
+  background: rgba(6, 12, 24, 0.6);
+  border: 1px solid rgba(186, 203, 255, 0.26);
+  font-size: 0.78rem;
+}
+
+.scenario-hero-cta {
+  width: fit-content;
+  border: 0;
+  border-radius: 0.95rem;
+  padding: 0.88rem 1.32rem;
+  background: linear-gradient(180deg, #32db7a, #1dbe62);
+  color: #042013;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.scenario-hero-about {
+  align-self: end;
+  backdrop-filter: blur(8px);
+  border-radius: 1rem;
+  border: 1px solid rgba(183, 201, 255, 0.28);
+  background: rgba(6, 13, 26, 0.66);
+  padding: 1rem;
+}
+
+.scenario-hero-about h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.25rem;
+}
+
+.scenario-about-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.scenario-about-chips span {
+  font-size: 0.76rem;
+  padding: 0.32rem 0.56rem;
+  border-radius: 999px;
+  background: rgba(30, 45, 82, 0.75);
+  border: 1px solid rgba(167, 188, 246, 0.28);
 }
 
 .preset-browser-toolbar {
@@ -304,6 +458,28 @@ svg {
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.top-preset-wrapper {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.top-preset-wrapper.is-active .top-preset-card .top-preset-art {
+  outline: 2px solid rgba(121, 170, 255, 0.66);
+  outline-offset: 2px;
+}
+
+.top-preset-preview {
+  width: fit-content;
+  border: 1px solid rgba(34, 46, 72, 0.22);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 0.7rem;
+  padding: 0.35rem 0.62rem;
+  cursor: pointer;
+  color: #1f2f4d;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .top-preset-art,
@@ -890,6 +1066,58 @@ svg {
   gap: 1rem;
 }
 
+.launch-country-preview {
+  position: relative;
+  min-height: 14rem;
+  border-radius: 1.2rem;
+  overflow: hidden;
+  border: 1px solid rgba(19, 29, 48, 0.14);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: 0 16px 34px rgba(20, 26, 42, 0.16);
+}
+
+.launch-country-preview::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(9, 17, 32, 0.24), rgba(9, 17, 32, 0.78));
+}
+
+.launch-country-preview-copy {
+  position: absolute;
+  z-index: 1;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  gap: 0.35rem;
+  color: #f3f7ff;
+}
+
+.launch-country-preview-copy strong {
+  font-size: 1.4rem;
+  letter-spacing: -0.04em;
+}
+
+.launch-country-preview-copy p {
+  margin: 0;
+  color: rgba(223, 234, 255, 0.86);
+  line-height: 1.45;
+}
+
+.launch-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.launch-action-row .primary-button,
+.launch-action-row .secondary-button {
+  flex: 1 1 11.5rem;
+}
+
 .field-block {
   display: flex;
   flex-direction: column;
@@ -1242,6 +1470,8 @@ svg {
   width: 100%;
   height: 100%;
   cursor: grab;
+  text-rendering: geometricPrecision;
+  shape-rendering: geometricPrecision;
 }
 
 .country-shape {
@@ -1254,7 +1484,7 @@ svg {
 
 .province-shape {
   fill: none;
-  stroke: rgba(20, 26, 40, 0.52);
+  stroke: rgba(20, 26, 40, 0.32);
   stroke-width: 0.05;
   pointer-events: auto;
   transition: stroke 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
@@ -1894,6 +2124,12 @@ svg {
     display: grid;
   }
 
+  .scenario-hero {
+    grid-template-columns: 1fr;
+    min-height: 23rem;
+    padding: 1.35rem;
+  }
+
   .preset-browser-filters,
   .dark-category-tabs {
     justify-content: start;
@@ -1927,6 +2163,14 @@ svg {
     grid-template-columns: 1fr;
   }
 
+  .scenario-hero {
+    min-height: 20rem;
+  }
+
+  .scenario-hero h1 {
+    font-size: clamp(2.05rem, 8vw, 3rem);
+  }
+
   .compact-preset-grid.is-tall {
     grid-template-columns: 1fr;
   }
@@ -1948,6 +2192,7 @@ svg {
   .header-meta {
     width: 100%;
     justify-content: center;
+    flex-wrap: wrap;
   }
 
   .events-panel,

@@ -199,6 +199,16 @@ function applyEffectsToArtifacts(game: GameState, effects: MapEffect[]): void {
       strength: baseStrength,
       tick: game.tick
     });
+
+    if (effect.kind === "army" && effect.sourceCountryId && effect.sourceCountryId !== effect.countryId) {
+      upsertMapArtifact(game, {
+        kind: "unit",
+        countryId: effect.sourceCountryId,
+        label: `Staging forces toward ${safeCountryName(game, effect.countryId)}.`,
+        strength: Math.max(1, Math.round(effect.intensity)),
+        tick: game.tick
+      });
+    }
   }
 }
 
@@ -206,7 +216,7 @@ function decayMapArtifacts(game: GameState): void {
   game.mapArtifacts = game.mapArtifacts
     .map((artifact) => {
       const age = Math.max(0, game.tick - artifact.updatedTick);
-      const decay = age >= 4 ? 2 : 1;
+      const decay = age >= 10 ? 2 : age >= 5 ? 1 : 0;
       const nextStrength = artifact.strength - decay;
       return {
         ...artifact,

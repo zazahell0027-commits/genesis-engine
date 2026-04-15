@@ -1,12 +1,38 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CountryState, MapArtifact, MapEffect, PresetSummary } from "@genesis/shared";
-
-type ViewBox = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
+import { STRATEGIC_CITIES } from "../assets/strategicCities";
+import {
+  DEFAULT_VIEWBOX,
+  EUROPE_VIEWBOX,
+  MAX_VIEWBOX_HEIGHT,
+  MAX_VIEWBOX_WIDTH,
+  MIN_VIEWBOX_HEIGHT,
+  MIN_VIEWBOX_WIDTH,
+  clamp,
+  easeOutCubic,
+  lerp,
+  normalizeViewBox,
+  wrap
+} from "../features/map/camera";
+import { deriveZoomBand, getLodPolicy, shouldPreferSelectedCountryProvinces, type ZoomBand } from "../features/map/pipeline";
+import { getProvinceDisplayName, selectCountryLabelFeatures, selectProvinceLabelFeatures } from "../features/map/labeling";
+import { MapChrome, type MapSettingsState, type OverlayMode } from "../features/map/MapChrome";
+import { MapStage } from "../features/map/MapStage";
+import { MARKER_OFFSETS, hash } from "../features/map/presentation";
+import { selectVisibleArtifactMarkers, selectVisibleCityMarkers, selectVisibleEffectMarkers, selectVisibleProvinceFeatures } from "../features/map/scene";
+import type {
+  ArtifactMarker,
+  CityMarker,
+  EffectMarker,
+  Feature,
+  GeoFeatureCollection,
+  GeoGeometry,
+  GeoFeatureSource,
+  ProvinceFeature,
+  Tooltip,
+  ViewBox
+} from "../features/map/types";
+import { useUiLocale } from "../i18n";
 
 type Props = {
   countries: CountryState[];
@@ -23,98 +49,23 @@ type Props = {
   onSelectProvince?: (provinceId: string, countryId: string) => void;
 };
 
-type GeoGeometry = {
-  type: "Polygon" | "MultiPolygon";
-  coordinates: number[][][] | number[][][][];
+const DEFAULT_MAP_SETTINGS: MapSettingsState = {
+  showOwnerColors: true,
+  showCountryLabels: true,
+  showInvisible: false,
+  showMapElements: true,
+  showRegionMarkers: false,
+  showRegionLabels: true,
+  zoomSensitivity: 1,
+  borderScale: 1,
+  markerScaleRelative: 1,
+  markerScaleAbsolute: 1,
+  invertScroll: false,
+  disableMomentum: false,
+  disableEventAnimations: false,
+  disableCameraMoves: false,
+  globeMode: true
 };
-
-type GeoFeatureSource = {
-  type: "Feature";
-  properties: {
-    name?: string;
-    admin?: string;
-    id?: string;
-    country?: string;
-    countryId?: string;
-    NAME_1?: string;
-    name_en?: string;
-  };
-  geometry: GeoGeometry;
-};
-
-type GeoFeatureCollection = {
-  type: "FeatureCollection";
-  features: GeoFeatureSource[];
-};
-
-type Feature = {
-  id: number;
-  countryId: string;
-  name: string;
-  path: string;
-  centroid: { x: number; y: number };
-  bbox: { x: number; y: number; width: number; height: number };
-};
-
-type Tooltip = {
-  x: number;
-  y: number;
-  title: string;
-  subtitle: string;
-};
-
-type EffectMarker = {
-  id: string;
-  kind: MapEffect["kind"];
-  countryId: string;
-  sourceCountryId?: string;
-  label: string;
-  intensity: number;
-  x: number;
-  y: number;
-};
-
-type ArtifactMarker = {
-  id: string;
-  kind: MapArtifact["kind"];
-  countryId: string;
-  label: string;
-  strength: number;
-  x: number;
-  y: number;
-};
-
-type ProvinceFeature = Feature & {
-  provinceId: string;
-  provinceName: string;
-  parentCountryId: string;
-};
-
-type OverlayMode = "balanced" | "tension" | "army" | "fortification" | "industry";
-
-const DEFAULT_VIEWBOX: ViewBox = { x: 0, y: 0, width: 100, height: 50 };
-const COUNTRY_PALETTE = [
-  "#c9b49a",
-  "#b3c08f",
-  "#d8c58e",
-  "#bfc9a2",
-  "#d4baa7",
-  "#b9c2ce",
-  "#ccb4d4",
-  "#c8bf97",
-  "#aebfa8",
-  "#d0b09c",
-  "#bac6b0",
-  "#c6baa3"
-];
-const MARKER_OFFSETS = [
-  { x: -1.05, y: -0.7 },
-  { x: 1.05, y: -0.7 },
-  { x: -1.05, y: 0.75 },
-  { x: 1.05, y: 0.75 },
-  { x: 0, y: -1.2 },
-  { x: 0, y: 1.2 }
-];
 
 const COUNTRY_ALIASES: Record<string, string> = {
   "czechia": "czech republic",
@@ -122,11 +73,6 @@ const COUNTRY_ALIASES: Record<string, string> = {
   "united kingdom of great britain and northern ireland": "united kingdom",
   "federated states of micronesia": "micronesia"
 };
-const EUROPE_VIEWBOX: ViewBox = { x: 20, y: 7, width: 32, height: 20 };
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
 
 function normalize(value: string): string {
   return value
@@ -141,18 +87,6 @@ function normalize(value: string): string {
 function resolveCountryId(rawValue: string | undefined): string {
   const normalized = normalize(rawValue ?? "");
   return COUNTRY_ALIASES[normalized] ?? normalized;
-}
-
-function uniqueIds(values: Array<string | undefined | null>): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim().length > 0)))];
-}
-
-function hash(seed: string): number {
-  let result = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    result = (result * 33 + seed.charCodeAt(i)) % 1000003;
-  }
-  return result;
 }
 
 function project(lon: number, lat: number): { x: number; y: number } {
@@ -220,58 +154,6 @@ function ringsPath(rings: number[][][]): { path: string; centroid: { x: number; 
   };
 }
 
-function tint(hex: string, amount: number): string {
-  const clean = hex.replace("#", "");
-  const n = Number.parseInt(clean, 16);
-  const r = Math.max(0, Math.min(255, ((n >> 16) & 255) + amount));
-  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amount));
-  const b = Math.max(0, Math.min(255, (n & 255) + amount));
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-function countryFill(country: CountryState, preset: PresetSummary, mode: OverlayMode): string {
-  if (mode === "tension") {
-    const neutral = "#d4d0bf";
-    return tint(neutral, Math.round((country.tension - 50) * 2.35));
-  }
-
-  if (mode === "army") {
-    const militaryBase = "#cbbca4";
-    return tint(militaryBase, Math.round((country.army * 2.8 + country.fortification * 2.2) - 24));
-  }
-
-  if (mode === "fortification") {
-    const fortBase = "#c6bed9";
-    return tint(fortBase, Math.round(country.fortification * 4 - 16));
-  }
-
-  if (mode === "industry") {
-    const industrialBase = "#b7c7b0";
-    return tint(industrialBase, Math.round((country.industry * 2.6 + country.wealth * 0.35) - 28));
-  }
-
-  const base = COUNTRY_PALETTE[hash(`${preset.id}:${country.id}`) % COUNTRY_PALETTE.length] ?? "#c7d2fe";
-  const pressure = Math.round((country.tension - 50) / 4) + country.unrest;
-  const production = Math.round((country.industry - 5) / 2);
-  const defense = Math.round((country.fortification - 4) / 2);
-  return tint(base, pressure * 2 + production - defense);
-}
-
-function effectGlyph(kind: MapEffect["kind"]): string {
-  if (kind === "army") return "A";
-  if (kind === "fortification") return "F";
-  if (kind === "industry") return "I";
-  if (kind === "stability") return "S";
-  if (kind === "diplomacy") return "D";
-  return "!";
-}
-
-function artifactGlyph(kind: MapArtifact["kind"]): string {
-  if (kind === "unit") return "U";
-  if (kind === "fort") return "F";
-  return "I";
-}
-
 function isEffectVisibleInMode(effect: MapEffect, mode: OverlayMode): boolean {
   if (mode === "balanced") return true;
   if (mode === "tension") return effect.kind === "crisis" || effect.kind === "stability";
@@ -285,14 +167,6 @@ function isArtifactVisibleInMode(artifact: MapArtifact, mode: OverlayMode): bool
   if (mode === "army") return artifact.kind === "unit";
   if (mode === "fortification") return artifact.kind === "fort";
   return artifact.kind === "industry_site";
-}
-
-function overlayModeLabel(mode: OverlayMode): string {
-  if (mode === "balanced") return "equilibre";
-  if (mode === "tension") return "crises";
-  if (mode === "army") return "troupes";
-  if (mode === "fortification") return "forts";
-  return "industrie";
 }
 
 function buildCountryFeatures(geoData: GeoFeatureCollection): Feature[] {
@@ -321,12 +195,15 @@ function buildProvinceFeatures(provinceGeoData: GeoFeatureCollection): ProvinceF
       const rings = toRings(feature.geometry);
       if (rings.length === 0) return null;
 
-      const provinceName = String(
-        feature.properties.name
-        ?? feature.properties.NAME_1
-        ?? feature.properties.name_en
-        ?? "Province"
-      );
+      const provinceNameNative = feature.properties.name
+        ? String(feature.properties.name)
+        : undefined;
+      const provinceNameEn = feature.properties.name_en
+        ? String(feature.properties.name_en)
+        : feature.properties.NAME_1
+          ? String(feature.properties.NAME_1)
+          : undefined;
+      const provinceName = provinceNameEn ?? provinceNameNative ?? "Province";
       const provinceId = normalize(String(feature.properties.id ?? `${provinceName}-${index}`));
       const parentCountryId = resolveCountryId(feature.properties.countryId ?? feature.properties.country);
       if (!parentCountryId) return null;
@@ -341,6 +218,8 @@ function buildProvinceFeatures(provinceGeoData: GeoFeatureCollection): ProvinceF
         bbox: projected.bbox,
         provinceId,
         provinceName,
+        provinceNameNative,
+        provinceNameEn,
         parentCountryId
       } as ProvinceFeature;
     })
@@ -361,29 +240,55 @@ export function WorldGeoMap({
   onSelectCountry,
   onSelectProvince
 }: Props): React.JSX.Element {
+  const { locale } = useUiLocale();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ startX: number; startY: number; viewBox: ViewBox } | null>(null);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    viewBox: ViewBox;
+    startGlobeRotation: number;
+  } | null>(null);
   const pointerMotionRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const animationFrameRef = useRef<number | null>(null);
+  const viewBoxFrameRef = useRef<number | null>(null);
+  const pendingViewBoxRef = useRef<ViewBox | null>(null);
+  const globeRotationRef = useRef(0);
+  const globeRotationFrameRef = useRef<number | null>(null);
+  const pendingGlobeRotationRef = useRef<number | null>(null);
+  const tooltipFrameRef = useRef<number | null>(null);
+  const pendingTooltipRef = useRef<Tooltip | null>(null);
+  const viewBoxRef = useRef<ViewBox>(DEFAULT_VIEWBOX);
+
   const [viewBox, setViewBox] = useState<ViewBox>(DEFAULT_VIEWBOX);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("balanced");
+  const [showSettings, setShowSettings] = useState(false);
+  const [mapSettings, setMapSettings] = useState<MapSettingsState>(DEFAULT_MAP_SETTINGS);
+  const [globeRotation, setGlobeRotation] = useState(0);
   const [countryFeatures, setCountryFeatures] = useState<Feature[]>([]);
   const [provinceFeatures, setProvinceFeatures] = useState<ProvinceFeature[]>([]);
   const [mapLoadState, setMapLoadState] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadMapData(): Promise<void> {
       setMapLoadState("loading");
       try {
-        const [worldModule, provincesModule] = await Promise.all([
-          import("../assets/world_countries_slim.json"),
-          import("../assets/europe_provinces.json")
+        const baseUrl = import.meta.env.BASE_URL || "/";
+        const [worldResponse, provincesResponse] = await Promise.all([
+          fetch(`${baseUrl}maps/world_countries_slim.json`),
+          fetch(`${baseUrl}maps/europe_provinces.json`)
         ]);
+        if (!worldResponse.ok || !provincesResponse.ok) {
+          throw new Error("GeoJSON files are not available");
+        }
         if (cancelled) return;
 
-        const worldGeo = worldModule.default as GeoFeatureCollection;
-        const europeGeo = provincesModule.default as GeoFeatureCollection;
+        const [worldGeo, europeGeo] = await Promise.all([
+          worldResponse.json() as Promise<GeoFeatureCollection>,
+          provincesResponse.json() as Promise<GeoFeatureCollection>
+        ]);
         setCountryFeatures(buildCountryFeatures(worldGeo));
         setProvinceFeatures(buildProvinceFeatures(europeGeo));
         setMapLoadState("ready");
@@ -396,15 +301,25 @@ export function WorldGeoMap({
     }
 
     void loadMapData();
+
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const showProvinceLayer = mapLoadState === "ready" && viewBox.width <= 68;
+  const zoomBand: ZoomBand = deriveZoomBand(viewBox.width);
+  const isGlobeMode = mapSettings.globeMode && zoomBand === "far";
+  const shouldTileFlat = !isGlobeMode
+    && (zoomBand === "far" || zoomBand === "global")
+    && viewBox.width < 92
+    && (viewBox.x + viewBox.width > MAX_VIEWBOX_WIDTH);
+  const isDetailZoom = zoomBand === "detail";
   const mapReady = mapLoadState === "ready";
 
-  const countriesById = useMemo(() => new Map(countries.map((country) => [country.id, country])), [countries]);
+  const countriesById = useMemo(
+    () => new Map(countries.map((country) => [country.id, country])),
+    [countries]
+  );
   const featuresByCountry = useMemo(
     () => new Map(countryFeatures.map((feature) => [feature.countryId, feature])),
     [countryFeatures]
@@ -415,37 +330,79 @@ export function WorldGeoMap({
   );
   const selectedCountry = selectedCountryId ? countriesById.get(selectedCountryId) ?? null : null;
   const highlightedSet = useMemo(() => new Set(highlightedCountryIds ?? []), [highlightedCountryIds]);
+  const focusSet = useMemo(() => new Set(focusCountryIds ?? []), [focusCountryIds]);
   const resolvedEffects = mapEffects ?? [];
   const resolvedArtifacts = mapArtifacts ?? [];
-  const labelFeatures = useMemo(
-    () => countryFeatures
-      .map((feature) => ({ feature, country: countriesById.get(feature.countryId) }))
-      .filter((item): item is { feature: Feature; country: CountryState } => Boolean(item.country))
-      .sort((a, b) => b.country.power - a.country.power)
-      .filter((item) => item.feature.bbox.width > 4.6 && item.feature.bbox.height > 1.4)
-      .slice(0, 11),
-    [countryFeatures, countriesById]
+  const markerScaleBase = clamp((viewBox.width / 35) * mapSettings.markerScaleRelative * mapSettings.markerScaleAbsolute, 0.22, 2.2);
+  const borderScale = clamp(mapSettings.borderScale, 0.25, 3);
+
+  const lodPolicy = getLodPolicy({
+    zoomBand,
+    viewWidth: viewBox.width,
+    selectedCountryId,
+    showInvisible: mapSettings.showInvisible,
+    showMapElements: mapSettings.showMapElements,
+    showRegionMarkers: mapSettings.showRegionMarkers,
+    showRegionLabels: mapSettings.showRegionLabels,
+    showCountryLabels: mapSettings.showCountryLabels
+  });
+
+  const showCountryLabels = lodPolicy.showCountryLabels;
+  const showRegionLabels = lodPolicy.showRegionLabels;
+  const showProvinceLayer = lodPolicy.showProvinceLayer;
+  const showFrontlineLayer = lodPolicy.showFrontlineLayer;
+  const showEffectsLayer = lodPolicy.showEffectsLayer;
+  const showArtifactsLayer = lodPolicy.showArtifactsLayer;
+  const showCitiesLayer = lodPolicy.showCitiesLayer;
+
+  const labelDensityLimit = lodPolicy.labelDensityLimit;
+  const labelMinWidth = lodPolicy.labelMinWidth;
+  const labelMinHeight = lodPolicy.labelMinHeight;
+  const countryLabelZoomFactor = lodPolicy.countryLabelZoomFactor;
+
+  const countryLabelFeatures = useMemo(
+    () => selectCountryLabelFeatures({
+      countryFeatures,
+      countriesById,
+      selectedCountryId,
+      zoomBand,
+      viewWidth: viewBox.width,
+      labelDensityLimit,
+      labelMinWidth,
+      labelMinHeight
+    }),
+    [countryFeatures, countriesById, selectedCountryId, zoomBand, viewBox.width, labelDensityLimit, labelMinWidth, labelMinHeight]
   );
-  const visibleProvinceFeatures = useMemo(
-    () => (
-      showProvinceLayer
-        ? provinceFeatures.filter((feature) => countriesById.has(feature.parentCountryId))
-          .filter((feature) => !(
-            feature.bbox.x > viewBox.x + viewBox.width ||
-            feature.bbox.x + feature.bbox.width < viewBox.x ||
-            feature.bbox.y > viewBox.y + viewBox.height ||
-            feature.bbox.y + feature.bbox.height < viewBox.y
-          ))
-        : []
-    ),
-    [showProvinceLayer, provinceFeatures, countriesById, viewBox]
-  );
+
+  const visibleProvinceFeatures = useMemo(() => (
+    selectVisibleProvinceFeatures({
+      provinceFeatures: provinceFeatures.filter((feature) => countriesById.has(feature.parentCountryId)),
+      showProvinceLayer,
+      selectedCountryId,
+      showInvisible: mapSettings.showInvisible,
+      preferSelectedCountry: shouldPreferSelectedCountryProvinces(viewBox.width),
+      isDetailZoom,
+      viewBox
+    })
+  ), [showProvinceLayer, provinceFeatures, countriesById, viewBox, isDetailZoom, selectedCountryId, mapSettings.showInvisible]);
+
+  const provinceLabelFeatures = useMemo(() => {
+    if (!showRegionLabels) return [] as Array<{ x: number; y: number; label: string; feature: ProvinceFeature }>;
+    return selectProvinceLabelFeatures({
+      provinceFeatures: visibleProvinceFeatures,
+      selectedCountryId,
+      zoomBand,
+      locale,
+      showInvisible: mapSettings.showInvisible
+    });
+  }, [locale, mapSettings.showInvisible, showRegionLabels, visibleProvinceFeatures, selectedCountryId, zoomBand]);
 
   const effectMarkers = useMemo(() => {
     const grouped = new Map<string, MapEffect[]>();
 
     for (const effect of resolvedEffects) {
       if (!isEffectVisibleInMode(effect, overlayMode)) continue;
+      if (!mapSettings.showInvisible && effect.intensity <= 0) continue;
       const feature = featuresByCountry.get(effect.countryId);
       if (!feature) continue;
       const key = `${effect.countryId}:${effect.kind}`;
@@ -454,26 +411,37 @@ export function WorldGeoMap({
       grouped.set(key, bucket);
     }
 
-    return [...grouped.entries()].map(([key, effects]) => {
+    const raw = [...grouped.entries()].map(([key, effects]) => {
       const effect = effects[effects.length - 1];
       const feature = featuresByCountry.get(effect.countryId);
       const offset = MARKER_OFFSETS[hash(key) % MARKER_OFFSETS.length] ?? { x: 0, y: 0 };
       const intensity = effects.reduce((sum, entry) => sum + entry.intensity, 0);
+      const latestTick = Math.max(...effects.map((entry) => entry.tick));
       return {
         id: key,
         kind: effect.kind,
         countryId: effect.countryId,
-        sourceCountryId: effect.sourceCountryId,
         label: effect.label,
         intensity,
-        x: (feature?.centroid.x ?? 0) + offset.x * 0.37,
-        y: (feature?.centroid.y ?? 0) + offset.y * 0.37
+        latestTick,
+        x: (feature?.centroid.x ?? 0) + offset.x * 0.36,
+        y: (feature?.centroid.y ?? 0) + offset.y * 0.36
       } satisfies EffectMarker;
     });
-  }, [resolvedEffects, featuresByCountry, overlayMode]);
+
+    return selectVisibleEffectMarkers({
+      raw,
+      zoomBand,
+      selectedCountryId,
+      showInvisible: mapSettings.showInvisible,
+      minDistance: lodPolicy.effectMinDistance,
+      maxCount: lodPolicy.effectMaxCount
+    });
+  }, [resolvedEffects, featuresByCountry, overlayMode, zoomBand, lodPolicy.effectMinDistance, lodPolicy.effectMaxCount, mapSettings.showInvisible]);
+  const latestEffectTick = effectMarkers.reduce((maxTick, marker) => Math.max(maxTick, marker.latestTick), -1);
 
   const artifactMarkers = useMemo(() => {
-    return resolvedArtifacts
+    const raw = resolvedArtifacts
       .filter((artifact) => isArtifactVisibleInMode(artifact, overlayMode))
       .map((artifact) => {
         const province = artifact.provinceId ? provinceById.get(artifact.provinceId) : null;
@@ -487,12 +455,60 @@ export function WorldGeoMap({
           countryId: artifact.countryId,
           label: artifact.label,
           strength: artifact.strength,
-          x: anchor.centroid.x + offset.x * 0.3,
-          y: anchor.centroid.y + offset.y * 0.3
+          x: anchor.centroid.x + offset.x * 0.28,
+          y: anchor.centroid.y + offset.y * 0.28
         } satisfies ArtifactMarker;
       })
       .filter((marker): marker is ArtifactMarker => Boolean(marker));
-  }, [resolvedArtifacts, overlayMode, provinceById, featuresByCountry]);
+
+    return selectVisibleArtifactMarkers({
+      raw,
+      zoomBand,
+      selectedCountryId,
+      showInvisible: mapSettings.showInvisible,
+      minDistance: lodPolicy.artifactMinDistance,
+      maxCount: lodPolicy.artifactMaxCount
+    });
+  }, [resolvedArtifacts, overlayMode, provinceById, featuresByCountry, zoomBand, lodPolicy.artifactMinDistance, lodPolicy.artifactMaxCount, mapSettings.showInvisible]);
+
+  const cityMarkers = useMemo(() => {
+    if (!showCitiesLayer) return [] as CityMarker[];
+
+    const paddedView = {
+      minX: viewBox.x - viewBox.width * 0.08,
+      maxX: viewBox.x + viewBox.width * 1.08,
+      minY: viewBox.y - viewBox.height * 0.08,
+      maxY: viewBox.y + viewBox.height * 1.08
+    };
+
+    const raw = STRATEGIC_CITIES
+      .filter((city) => countriesById.has(city.countryId))
+      .map((city) => {
+        const projected = project(city.lon, city.lat);
+        return {
+          id: city.id,
+          countryId: city.countryId,
+          tier: city.tier,
+          label: city.name,
+          x: projected.x,
+          y: projected.y
+        } satisfies CityMarker;
+      })
+      .filter((marker) => (
+        marker.x >= paddedView.minX &&
+        marker.x <= paddedView.maxX &&
+        marker.y >= paddedView.minY &&
+        marker.y <= paddedView.maxY
+      ))
+    return selectVisibleCityMarkers({
+      raw,
+      zoomBand,
+      selectedCountryId,
+      showInvisible: mapSettings.showInvisible,
+      minDistance: lodPolicy.cityMinDistance,
+      maxCount: lodPolicy.cityMaxCount
+    });
+  }, [countriesById, viewBox, showCitiesLayer, zoomBand, mapSettings.showInvisible, selectedCountryId, lodPolicy.cityMinDistance, lodPolicy.cityMaxCount]);
 
   const frontlineLinks = useMemo(() => {
     const links = new Map<string, { from: Feature; to: Feature; intensity: number }>();
@@ -516,19 +532,136 @@ export function WorldGeoMap({
     return [...links.values()];
   }, [resolvedEffects, featuresByCountry]);
 
-  function normalizeViewBox(next: ViewBox): ViewBox {
-    const width = clamp(next.width, 18, 100);
-    const height = clamp(next.height, 10, 50);
-    let x = clamp(next.x, 0, 100 - width);
-    let y = clamp(next.y, 0, 50 - height);
+  function cancelAnimation(): void {
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  }
 
-    if (width <= 26) {
-      x = clamp(x, EUROPE_VIEWBOX.x, EUROPE_VIEWBOX.x + EUROPE_VIEWBOX.width - width);
-      y = clamp(y, EUROPE_VIEWBOX.y, EUROPE_VIEWBOX.y + EUROPE_VIEWBOX.height - height);
+  function cancelViewBoxFrame(): void {
+    if (viewBoxFrameRef.current !== null) {
+      window.cancelAnimationFrame(viewBoxFrameRef.current);
+      viewBoxFrameRef.current = null;
+    }
+    pendingViewBoxRef.current = null;
+  }
+
+  function cancelGlobeRotationFrame(): void {
+    if (globeRotationFrameRef.current !== null) {
+      window.cancelAnimationFrame(globeRotationFrameRef.current);
+      globeRotationFrameRef.current = null;
+    }
+    pendingGlobeRotationRef.current = null;
+  }
+
+  function cancelTooltipFrame(): void {
+    if (tooltipFrameRef.current !== null) {
+      window.cancelAnimationFrame(tooltipFrameRef.current);
+      tooltipFrameRef.current = null;
+    }
+  }
+
+  function scheduleViewBox(next: ViewBox): void {
+    viewBoxRef.current = next;
+    pendingViewBoxRef.current = next;
+
+    if (viewBoxFrameRef.current !== null) return;
+
+    viewBoxFrameRef.current = window.requestAnimationFrame(() => {
+      viewBoxFrameRef.current = null;
+      const pending = pendingViewBoxRef.current;
+      pendingViewBoxRef.current = null;
+      if (pending) {
+        setViewBox(pending);
+      }
+    });
+  }
+
+  function setGlobeRotationImmediate(next: number): void {
+    cancelGlobeRotationFrame();
+    globeRotationRef.current = next;
+    setGlobeRotation(next);
+  }
+
+  function scheduleGlobeRotation(next: number): void {
+    globeRotationRef.current = next;
+    pendingGlobeRotationRef.current = next;
+
+    if (globeRotationFrameRef.current !== null) return;
+
+    globeRotationFrameRef.current = window.requestAnimationFrame(() => {
+      globeRotationFrameRef.current = null;
+      const pending = pendingGlobeRotationRef.current;
+      pendingGlobeRotationRef.current = null;
+      if (pending !== null) {
+        setGlobeRotation(pending);
+      }
+    });
+  }
+
+  function setViewBoxImmediate(next: ViewBox): void {
+    cancelViewBoxFrame();
+    const normalized = normalizeViewBox(next);
+    viewBoxRef.current = normalized;
+    setViewBox(normalized);
+  }
+
+  function animateToViewBox(target: ViewBox, duration = 430): void {
+    if (mapSettings.disableCameraMoves) {
+      setViewBoxImmediate(target);
+      return;
     }
 
-    return { x, y, width, height };
+    cancelAnimation();
+    const from = viewBoxRef.current;
+    const to = normalizeViewBox(target);
+    const start = performance.now();
+
+    function step(now: number): void {
+      const elapsed = now - start;
+      const progress = clamp(elapsed / duration, 0, 1);
+      const eased = easeOutCubic(progress);
+      const interpolated = normalizeViewBox({
+        x: lerp(from.x, to.x, eased),
+        y: lerp(from.y, to.y, eased),
+        width: lerp(from.width, to.width, eased),
+        height: lerp(from.height, to.height, eased)
+      });
+
+      viewBoxRef.current = interpolated;
+      setViewBox(interpolated);
+
+      if (progress < 1) {
+        animationFrameRef.current = window.requestAnimationFrame(step);
+      } else {
+        animationFrameRef.current = null;
+      }
+    }
+
+    animationFrameRef.current = window.requestAnimationFrame(step);
   }
+
+  useEffect(() => {
+    viewBoxRef.current = viewBox;
+  }, [viewBox]);
+
+  useEffect(() => {
+    globeRotationRef.current = globeRotation;
+  }, [globeRotation]);
+
+  useEffect(() => () => {
+    cancelAnimation();
+    cancelViewBoxFrame();
+    cancelGlobeRotationFrame();
+    cancelTooltipFrame();
+  }, []);
+
+  useEffect(() => {
+    if (!isGlobeMode && Math.abs(globeRotation) > 0.01) {
+      setGlobeRotationImmediate(0);
+    }
+  }, [isGlobeMode, globeRotation]);
 
   useEffect(() => {
     const countryTargets = (focusCountryIds ?? [])
@@ -544,15 +677,15 @@ export function WorldGeoMap({
     const minY = Math.min(...targets.map((feature) => feature.bbox.y));
     const maxX = Math.max(...targets.map((feature) => feature.bbox.x + feature.bbox.width));
     const maxY = Math.max(...targets.map((feature) => feature.bbox.y + feature.bbox.height));
-    const width = clamp((maxX - minX) * 2, 18, 70);
-    const height = clamp((maxY - minY) * 2, 10, 34);
-    setViewBox(normalizeViewBox({
+    const width = clamp((maxX - minX) * 1.95, 7.5, 70);
+    const height = clamp((maxY - minY) * 1.95, 4.2, 34);
+    animateToViewBox({
       x: minX + (maxX - minX) / 2 - width / 2,
       y: minY + (maxY - minY) / 2 - height / 2,
       width,
       height
-    }));
-  }, [focusToken, focusCountryIds, focusProvinceIds, featuresByCountry, provinceById]);
+    }, 500);
+  }, [focusToken, focusCountryIds, focusProvinceIds, featuresByCountry, provinceById, mapSettings.disableCameraMoves]);
 
   function toLocalPosition(clientX: number, clientY: number): { x: number; y: number } | null {
     const rect = wrapperRef.current?.getBoundingClientRect();
@@ -560,32 +693,106 @@ export function WorldGeoMap({
     return { x: clientX - rect.left, y: clientY - rect.top };
   }
 
+  function clearTooltip(): void {
+    pendingTooltipRef.current = null;
+    cancelTooltipFrame();
+    setTooltip((current) => (current ? null : current));
+  }
+
+  function showTooltipFromClientPoint(clientX: number, clientY: number, title: string, subtitle: string): void {
+    const point = toLocalPosition(clientX, clientY);
+    if (!point) {
+      clearTooltip();
+      return;
+    }
+    pendingTooltipRef.current = {
+      x: point.x,
+      y: point.y,
+      title,
+      subtitle
+    };
+
+    if (tooltipFrameRef.current !== null) return;
+
+    tooltipFrameRef.current = window.requestAnimationFrame(() => {
+      tooltipFrameRef.current = null;
+      const next = pendingTooltipRef.current;
+      if (!next) return;
+      setTooltip((current) => {
+        if (
+          current
+          && current.title === next.title
+          && current.subtitle === next.subtitle
+          && Math.abs(current.x - next.x) < 3
+          && Math.abs(current.y - next.y) < 3
+        ) {
+          return current;
+        }
+        return next;
+      });
+    });
+  }
+
+  function provinceDisplayName(feature: ProvinceFeature): string {
+    return getProvinceDisplayName(feature, locale);
+  }
+
   function handleWheel(event: React.WheelEvent<SVGSVGElement>): void {
     event.preventDefault();
     const rect = wrapperRef.current?.getBoundingClientRect();
     if (!rect) return;
+    cancelAnimation();
 
-    const nextScale = event.deltaY > 0 ? 1.14 : 0.88;
-    const pointX = ((event.clientX - rect.left) / rect.width) * viewBox.width + viewBox.x;
-    const pointY = ((event.clientY - rect.top) / rect.height) * viewBox.height + viewBox.y;
-    const nextWidth = Math.max(18, Math.min(100, viewBox.width * nextScale));
-    const nextHeight = Math.max(10, Math.min(50, viewBox.height * nextScale));
-    const widthRatio = nextWidth / viewBox.width;
-    const heightRatio = nextHeight / viewBox.height;
-    setViewBox(normalizeViewBox({
-      x: pointX - (pointX - viewBox.x) * widthRatio,
-      y: pointY - (pointY - viewBox.y) * heightRatio,
+    const rawDelta = mapSettings.invertScroll ? -event.deltaY : event.deltaY;
+    const wheelDelta = clamp(rawDelta, -140, 140);
+
+    if (isGlobeMode) {
+      if (wheelDelta < 0) {
+        animateToViewBox({ x: 10, y: 5, width: 80, height: 40 }, 360);
+        return;
+      }
+
+      scheduleGlobeRotation(wrap(globeRotationRef.current + wheelDelta * 0.018, -100, 100));
+      return;
+    }
+
+    const current = viewBoxRef.current;
+    const sensitivity = clamp(mapSettings.zoomSensitivity, 0.5, 3);
+    const nextScale = Math.exp(wheelDelta * (0.0018 * sensitivity));
+    const pointX = ((event.clientX - rect.left) / rect.width) * current.width + current.x;
+    const pointY = ((event.clientY - rect.top) / rect.height) * current.height + current.y;
+    const nextWidth = clamp(current.width * nextScale, MIN_VIEWBOX_WIDTH, MAX_VIEWBOX_WIDTH);
+    const nextHeight = clamp(current.height * nextScale, MIN_VIEWBOX_HEIGHT, MAX_VIEWBOX_HEIGHT);
+    const widthRatio = nextWidth / current.width;
+    const heightRatio = nextHeight / current.height;
+    const nextViewBox = normalizeViewBox({
+      x: pointX - (pointX - current.x) * widthRatio,
+      y: pointY - (pointY - current.y) * heightRatio,
       width: nextWidth,
       height: nextHeight
-    }));
+    });
+
+    viewBoxRef.current = nextViewBox;
+    scheduleViewBox(nextViewBox);
+    if (
+      mapSettings.globeMode
+      && wheelDelta > 0
+      && nextViewBox.width >= 93
+    ) {
+      setGlobeRotationImmediate(0);
+      setViewBoxImmediate(DEFAULT_VIEWBOX);
+    }
+
   }
 
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>): void {
+    cancelAnimation();
     pointerMotionRef.current = { dx: 0, dy: 0 };
     dragRef.current = {
       startX: event.clientX,
       startY: event.clientY,
-      viewBox
+      viewBox: viewBoxRef.current,
+      startGlobeRotation: globeRotation
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -593,38 +800,82 @@ export function WorldGeoMap({
   function handlePointerMove(event: React.PointerEvent<SVGSVGElement>): void {
     if (!dragRef.current || !wrapperRef.current) return;
     const rect = wrapperRef.current.getBoundingClientRect();
+
+    if (isGlobeMode) {
+      const delta = (event.clientX - dragRef.current.startX) / rect.width;
+      scheduleGlobeRotation(wrap(dragRef.current.startGlobeRotation + delta * 100, -100, 100));
+      return;
+    }
+
     const deltaX = ((event.clientX - dragRef.current.startX) / rect.width) * dragRef.current.viewBox.width;
     const deltaY = ((event.clientY - dragRef.current.startY) / rect.height) * dragRef.current.viewBox.height;
     pointerMotionRef.current = { dx: deltaX, dy: deltaY };
-    setViewBox(normalizeViewBox({
+    const nextViewBox = normalizeViewBox({
       x: dragRef.current.viewBox.x - deltaX,
       y: dragRef.current.viewBox.y - deltaY,
       width: dragRef.current.viewBox.width,
       height: dragRef.current.viewBox.height
-    }));
+    });
+    viewBoxRef.current = nextViewBox;
+    scheduleViewBox(nextViewBox);
+
   }
 
   function handlePointerUp(event: React.PointerEvent<SVGSVGElement>): void {
-    const momentumX = pointerMotionRef.current.dx * 0.22;
-    const momentumY = pointerMotionRef.current.dy * 0.22;
+    if (isGlobeMode || mapSettings.disableMomentum) {
+      dragRef.current = null;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
+
+    const maxMomentumX = viewBoxRef.current.width * 0.1;
+    const maxMomentumY = viewBoxRef.current.height * 0.1;
+    const momentumX = clamp(pointerMotionRef.current.dx * 0.18, -maxMomentumX, maxMomentumX);
+    const momentumY = clamp(pointerMotionRef.current.dy * 0.18, -maxMomentumY, maxMomentumY);
     if (Math.abs(momentumX) > 0.02 || Math.abs(momentumY) > 0.02) {
-      setViewBox((current) => normalizeViewBox({
-        x: current.x - momentumX,
-        y: current.y - momentumY,
-        width: current.width,
-        height: current.height
-      }));
+      animateToViewBox({
+        x: viewBoxRef.current.x - momentumX,
+        y: viewBoxRef.current.y - momentumY,
+        width: viewBoxRef.current.width,
+        height: viewBoxRef.current.height
+      }, 240);
     }
     dragRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
+  function handleDoubleClick(event: React.MouseEvent<SVGSVGElement>): void {
+    event.preventDefault();
+    if (isGlobeMode) {
+      animateToViewBox({ x: 10, y: 5, width: 80, height: 40 }, 360);
+      return;
+    }
+
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const current = viewBoxRef.current;
+    const pointX = ((event.clientX - rect.left) / rect.width) * current.width + current.x;
+    const pointY = ((event.clientY - rect.top) / rect.height) * current.height + current.y;
+    const nextWidth = clamp(current.width * 0.72, MIN_VIEWBOX_WIDTH, MAX_VIEWBOX_WIDTH);
+    const nextHeight = clamp(current.height * 0.72, MIN_VIEWBOX_HEIGHT, MAX_VIEWBOX_HEIGHT);
+    const widthRatio = nextWidth / current.width;
+    const heightRatio = nextHeight / current.height;
+    animateToViewBox({
+      x: pointX - (pointX - current.x) * widthRatio,
+      y: pointY - (pointY - current.y) * heightRatio,
+      width: nextWidth,
+      height: nextHeight
+    }, 320);
+  }
+
   function recenter(): void {
-    setViewBox(DEFAULT_VIEWBOX);
+    setGlobeRotationImmediate(0);
+    animateToViewBox(DEFAULT_VIEWBOX, 450);
   }
 
   function focusEurope(): void {
-    setViewBox(EUROPE_VIEWBOX);
+    setGlobeRotationImmediate(0);
+    animateToViewBox(EUROPE_VIEWBOX, 450);
   }
 
   function focusOnSelected(): void {
@@ -634,289 +885,99 @@ export function WorldGeoMap({
 
     const province = selectedProvinceId ? provinceById.get(selectedProvinceId) ?? null : null;
     const anchor = province ?? feature;
-    const width = Math.max(20, Math.min(44, anchor.bbox.width * 2.4));
-    const height = Math.max(10, Math.min(24, anchor.bbox.height * 2.6));
-    setViewBox(normalizeViewBox({
+    const width = province
+      ? clamp(anchor.bbox.width * 2.2, MIN_VIEWBOX_WIDTH, 12)
+      : clamp(anchor.bbox.width * 2.25, 7, 30);
+    const height = province
+      ? clamp(anchor.bbox.height * 2.25, MIN_VIEWBOX_HEIGHT, 7.6)
+      : clamp(anchor.bbox.height * 2.35, 4, 18);
+    animateToViewBox({
       x: anchor.centroid.x - width / 2,
       y: anchor.centroid.y - height / 2,
       width,
       height
-    }));
+    }, 460);
+  }
+
+  function toggleGlobeMode(): void {
+    const nextGlobeMode = !mapSettings.globeMode;
+    setMapSettings((current) => ({ ...current, globeMode: nextGlobeMode }));
+    if (nextGlobeMode) {
+      setGlobeRotationImmediate(0);
+      setViewBoxImmediate(DEFAULT_VIEWBOX);
+    }
   }
 
   return (
-    <div className="world-map-shell">
-      <div className="world-map-tools">
-        <div className="map-mode-row">
-          <button
-            type="button"
-            className={`map-tool-button mode-button${overlayMode === "balanced" ? " is-active" : ""}`}
-            aria-pressed={overlayMode === "balanced"}
-            onClick={() => setOverlayMode("balanced")}
-          >
-            Equilibre
-          </button>
-          <button
-            type="button"
-            className={`map-tool-button mode-button${overlayMode === "tension" ? " is-active" : ""}`}
-            aria-pressed={overlayMode === "tension"}
-            onClick={() => setOverlayMode("tension")}
-          >
-            Crises
-          </button>
-          <button
-            type="button"
-            className={`map-tool-button mode-button${overlayMode === "army" ? " is-active" : ""}`}
-            aria-pressed={overlayMode === "army"}
-            onClick={() => setOverlayMode("army")}
-          >
-            Troupes
-          </button>
-          <button
-            type="button"
-            className={`map-tool-button mode-button${overlayMode === "fortification" ? " is-active" : ""}`}
-            aria-pressed={overlayMode === "fortification"}
-            onClick={() => setOverlayMode("fortification")}
-          >
-            Forts
-          </button>
-          <button
-            type="button"
-            className={`map-tool-button mode-button${overlayMode === "industry" ? " is-active" : ""}`}
-            aria-pressed={overlayMode === "industry"}
-            onClick={() => setOverlayMode("industry")}
-          >
-            Industrie
-          </button>
-        </div>
-        <div className="map-tool-row">
-          <button type="button" className="map-tool-button" onClick={recenter}>
-            Monde
-          </button>
-          <button type="button" className="map-tool-button" onClick={focusEurope}>
-            Europe
-          </button>
-          <button type="button" className="map-tool-button" onClick={focusOnSelected} disabled={!selectedCountry || !mapReady}>
-            Focus
-          </button>
-        </div>
-      </div>
-
-      <div className="world-map-legend">
-        <span className="legend-item legend-mode">{`Mode: ${overlayModeLabel(overlayMode)}`}</span>
-        <span className="legend-item"><i className="legend-dot kind-army" /> Troupes</span>
-        <span className="legend-item"><i className="legend-dot kind-fortification" /> Forts</span>
-        <span className="legend-item"><i className="legend-dot kind-industry" /> Industrie</span>
-        <span className="legend-item"><i className="legend-dot kind-crisis" /> Crise</span>
-      </div>
+    <div className={`world-map-shell zoom-${zoomBand}${isGlobeMode ? " is-globe-mode" : ""}${mapSettings.disableEventAnimations ? " no-event-anim" : ""}`}>
+      <MapChrome
+        overlayMode={overlayMode}
+        onOverlayModeChange={setOverlayMode}
+        onRecenter={recenter}
+        onFocusEurope={focusEurope}
+        onFocusSelected={focusOnSelected}
+        onToggleGlobeMode={toggleGlobeMode}
+        canFocusSelected={Boolean(selectedCountry && mapReady)}
+        showSettings={showSettings}
+        onToggleSettings={() => setShowSettings((current) => !current)}
+        onCloseSettings={() => setShowSettings(false)}
+        showProvinceLayer={showProvinceLayer}
+        mapSettings={mapSettings}
+        setMapSettings={setMapSettings}
+      />
 
       <div className="world-map-wrap" ref={wrapperRef}>
-        <svg
-          viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-          className="world-map-svg"
-          role="img"
-          aria-label={`Carte du monde pour ${preset.title}`}
+        <MapStage
+          viewBox={viewBox}
+          preset={preset}
+          zoomBand={zoomBand}
+          isGlobeMode={isGlobeMode}
+          shouldTileFlat={shouldTileFlat}
+          globeRotation={globeRotation}
+          borderScale={borderScale}
+          markerScaleBase={markerScaleBase}
+          overlayMode={overlayMode}
+          mapReady={mapReady}
+          selectedCountryId={selectedCountryId}
+          selectedProvinceId={selectedProvinceId ?? null}
+          countryFeatures={countryFeatures}
+          visibleProvinceFeatures={visibleProvinceFeatures}
+          countryLabelFeatures={countryLabelFeatures}
+          provinceLabelFeatures={provinceLabelFeatures}
+          showProvinceLayer={showProvinceLayer}
+          showCountryLabels={showCountryLabels}
+          showRegionLabels={showRegionLabels}
+          showFrontlineLayer={showFrontlineLayer}
+          showEffectsLayer={showEffectsLayer}
+          showArtifactsLayer={showArtifactsLayer}
+          showCitiesLayer={showCitiesLayer}
+          latestEffectTick={latestEffectTick}
+          countriesById={countriesById}
+          effectMarkers={effectMarkers}
+          artifactMarkers={artifactMarkers}
+          cityMarkers={cityMarkers}
+          frontlineLinks={frontlineLinks}
+          highlightedSet={highlightedSet}
+          focusSet={focusSet}
+          countryLabelZoomFactor={countryLabelZoomFactor}
+          showOwnerColors={mapSettings.showOwnerColors}
+          localeProvinceName={provinceDisplayName}
+          onSelectCountry={onSelectCountry}
+          onSelectProvince={onSelectProvince}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onDoubleClick={handleDoubleClick}
           onPointerLeave={() => {
             dragRef.current = null;
             pointerMotionRef.current = { dx: 0, dy: 0 };
-            setTooltip(null);
+            clearTooltip();
           }}
-        >
-          <defs>
-            <linearGradient id="oceanGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0d3f72" />
-              <stop offset="100%" stopColor="#05224a" />
-            </linearGradient>
-            <filter id="oceanTexture">
-              <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="3" seed="7" />
-              <feColorMatrix
-                type="matrix"
-                values="1 0 0 0 0
-                        0 1 0 0 0
-                        0 0 1 0 0
-                        0 0 0 0.14 0"
-              />
-            </filter>
-            <radialGradient id="oceanBloom" cx="50%" cy="42%" r="70%">
-              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-            </radialGradient>
-            <radialGradient id="oceanDepth" cx="52%" cy="48%" r="75%">
-              <stop offset="0%" stopColor="#87b7ff" stopOpacity="0.11" />
-              <stop offset="100%" stopColor="#03142f" stopOpacity="0.48" />
-            </radialGradient>
-          </defs>
-
-          <rect x="0" y="0" width="100" height="50" fill="url(#oceanGradient)" />
-          <rect x="0" y="0" width="100" height="50" filter="url(#oceanTexture)" />
-          <rect x="0" y="0" width="100" height="50" fill="url(#oceanBloom)" opacity="0.24" />
-          <rect x="0" y="0" width="100" height="50" fill="url(#oceanDepth)" opacity="0.72" />
-
-          {frontlineLinks.map((line, index) => (
-            <line
-              key={`frontline-${line.from.countryId}-${line.to.countryId}-${index}`}
-              x1={line.from.centroid.x}
-              y1={line.from.centroid.y}
-              x2={line.to.centroid.x}
-              y2={line.to.centroid.y}
-              className="frontline-link"
-              style={{ strokeWidth: Math.min(0.24, 0.08 + line.intensity * 0.02) }}
-            />
-          ))}
-
-          {countryFeatures.map((feature) => {
-            const country = countriesById.get(feature.countryId);
-            const isSelected = selectedCountryId === feature.countryId;
-            const isImpacted = highlightedSet.has(feature.countryId);
-
-            return (
-              <path
-                key={feature.id}
-                d={feature.path}
-                fill={country ? countryFill(country, preset, overlayMode) : "#b6d0dc"}
-                stroke={isSelected ? "#fffdf4" : preset.mapPalette.landStroke}
-                strokeWidth={isSelected ? 0.34 : 0.16}
-                className={`country-shape${country ? " active" : ""}${isSelected ? " is-selected" : ""}${isImpacted ? " has-impact" : ""}`}
-                onClick={() => {
-                  if (!country || !mapReady) return;
-                  onSelectCountry(country.id);
-                }}
-                onMouseMove={(event) => {
-                  const point = toLocalPosition(event.clientX, event.clientY);
-                  if (!point || !country) {
-                    setTooltip(null);
-                    return;
-                  }
-                  setTooltip({
-                    x: point.x,
-                    y: point.y,
-                    title: country.name,
-                    subtitle: `${country.descriptor} | Puissance ${country.power} | Armee ${country.army} | Industrie ${country.industry}`
-                  });
-                }}
-              >
-                <title>
-                  {country
-                    ? `${country.name} | ${country.descriptor} | Puissance ${country.power} | Armee ${country.army} | Industrie ${country.industry} | Fort ${country.fortification}`
-                    : feature.name}
-                </title>
-              </path>
-            );
-          })}
-
-          {showProvinceLayer && visibleProvinceFeatures.map((feature) => {
-            const country = countriesById.get(feature.parentCountryId);
-            if (!country) return null;
-            const isSelected = selectedProvinceId === feature.provinceId;
-            return (
-              <path
-                key={`province-${feature.provinceId}`}
-                d={feature.path}
-                className={`province-shape${isSelected ? " is-selected" : ""}`}
-                onClick={() => {
-                  onSelectProvince?.(feature.provinceId, feature.parentCountryId);
-                }}
-                onMouseMove={(event) => {
-                  const point = toLocalPosition(event.clientX, event.clientY);
-                  if (!point) return;
-                  setTooltip({
-                    x: point.x,
-                    y: point.y,
-                    title: feature.provinceName,
-                    subtitle: `${country.name} | Province`
-                  });
-                }}
-              />
-            );
-          })}
-
-          {labelFeatures.map(({ feature, country }) => {
-            const fontSize = Math.max(0.56, Math.min(1.38, feature.bbox.width * 0.065));
-            return (
-              <text
-                key={`label-${feature.id}`}
-                x={feature.centroid.x}
-                y={feature.centroid.y}
-                textAnchor="middle"
-                className="world-map-label"
-                style={{ fontSize, fill: preset.mapPalette.labelColor }}
-              >
-                {country.name.toUpperCase()}
-              </text>
-            );
-          })}
-
-          {effectMarkers.map((marker) => {
-            const radius = Math.max(0.33, Math.min(0.68, 0.29 + marker.intensity * 0.05));
-            return (
-              <g
-                key={marker.id}
-                className={`map-effect-marker kind-${marker.kind}`}
-                transform={`translate(${marker.x.toFixed(3)} ${marker.y.toFixed(3)})`}
-                onMouseMove={(event) => {
-                  const point = toLocalPosition(event.clientX, event.clientY);
-                  if (!point) return;
-                  const countryName = countriesById.get(marker.countryId)?.name ?? marker.countryId;
-                  setTooltip({
-                    x: point.x,
-                    y: point.y,
-                    title: countryName,
-                    subtitle: marker.label
-                  });
-                }}
-              >
-                <circle r={radius} />
-                <text textAnchor="middle" dominantBaseline="central">
-                  {effectGlyph(marker.kind)}
-                </text>
-              </g>
-            );
-          })}
-
-          {artifactMarkers.map((marker) => {
-            const radius = Math.max(0.34, Math.min(0.72, 0.32 + marker.strength * 0.03));
-            return (
-              <g
-                key={marker.id}
-                className={`map-artifact-marker kind-${marker.kind}`}
-                transform={`translate(${marker.x.toFixed(3)} ${marker.y.toFixed(3)})`}
-                onMouseMove={(event) => {
-                  const point = toLocalPosition(event.clientX, event.clientY);
-                  if (!point) return;
-                  const countryName = countriesById.get(marker.countryId)?.name ?? marker.countryId;
-                  setTooltip({
-                    x: point.x,
-                    y: point.y,
-                    title: `${countryName} | Force ${marker.strength}`,
-                    subtitle: marker.label
-                  });
-                }}
-              >
-                <circle r={radius} />
-                <text textAnchor="middle" dominantBaseline="central">
-                  {artifactGlyph(marker.kind)}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {!mapReady && (
-          <div className={`map-loading-overlay${mapLoadState === "error" ? " is-error" : ""}`}>
-            <div className="map-loading-card">
-              <strong>{mapLoadState === "error" ? "Map load failed" : "Loading world map..."}</strong>
-              <span>
-                {mapLoadState === "error"
-                  ? "The GeoJSON dataset could not be loaded. Retry by refreshing the page."
-                  : "Preparing countries, provinces, and tactical overlays."}
-              </span>
-            </div>
-          </div>
-        )}
+          showTooltipFromClientPoint={showTooltipFromClientPoint}
+          clearTooltip={clearTooltip}
+          mapLoadState={mapLoadState}
+        />
       </div>
 
       {tooltip && (

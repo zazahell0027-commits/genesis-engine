@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import type { GameSessionSummary, PresetBrowserPayload, PresetRail, PresetSummary } from "@genesis/shared";
+import { useUiLocale } from "../i18n";
 
 function TopPresetCard(props: {
   preset: PresetSummary;
@@ -101,7 +102,54 @@ export function PresetBrowserPage(props: {
   recentGames: GameSessionSummary[];
   onLaunchPreset: (presetId: string) => void;
 }): React.JSX.Element {
+  const { locale } = useUiLocale();
   const [activeCategoryId, setActiveCategoryId] = useState<string>("all");
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const copy = locale === "fr"
+    ? {
+      all: "Tout",
+      playable: "presets jouables",
+      localGames: "parties locales",
+      launchNow: "Jouer maintenant",
+      preview: "Apercu",
+      roundsLabel: "parties",
+      turnsLabel: "tours",
+      copiesLabel: "copies",
+      recentUpdates: "Mises a jour recentes",
+      recentUpdatesSub: "Derniers ajustements de presets et mondes communautaires actifs.",
+      categoriesTitle: "Categories de presets",
+      categoriesSub: "Parcourez les familles historiques et communautaires dans un format proche du live.",
+      communityPopular: "Presets communaute populaires",
+      communityPopularSub: "Des mondes plus chaotiques, ideaux pour des chronologies inattendues.",
+      localRecent: "Parties locales recentes",
+      localRecentSub: "Reprenez les dernieres sessions creees sur ce workspace.",
+      noSessions: "Aucune session pour l'instant.",
+      official: "Preset officiel",
+      community: "Preset communaute",
+      about: "A propos de ce scenario"
+    }
+    : {
+      all: "All",
+      playable: "playable presets",
+      localGames: "local games",
+      launchNow: "Play now",
+      preview: "Preview",
+      roundsLabel: "games",
+      turnsLabel: "rounds",
+      copiesLabel: "copies",
+      recentUpdates: "Recently updated",
+      recentUpdatesSub: "Latest tuning passes for official and community worlds.",
+      categoriesTitle: "Preset categories",
+      categoriesSub: "Browse historical and community families in a live-like layout.",
+      communityPopular: "Popular community presets",
+      communityPopularSub: "More chaotic worlds built for unstable timelines.",
+      localRecent: "Recent local sessions",
+      localRecentSub: "Resume the latest sessions created in this workspace.",
+      noSessions: "No local sessions yet.",
+      official: "Official preset",
+      community: "Community preset",
+      about: "About this scenario"
+    };
 
   if (props.loading || !props.browserData) {
     return (
@@ -111,7 +159,7 @@ export function PresetBrowserPage(props: {
     );
   }
 
-  const allCategories = [{ id: "all", title: "All" }, ...props.browserData.categories.map((category) => ({
+  const allCategories = [{ id: "all", title: copy.all }, ...props.browserData.categories.map((category) => ({
     id: category.id,
     title: category.title
   }))];
@@ -129,16 +177,51 @@ export function PresetBrowserPage(props: {
   const communityPresets = filterPresets(presetsForRail(props.browserData, "popular-community")).slice(0, 5);
   const darkShelfPresets = filterPresets(props.browserData.presets).slice(0, 5);
   const trailingRails = otherRails(props.browserData, ["most-played", "recently-updated", "popular-community"]);
+  const activePreset = props.browserData.presets.find((preset) => preset.id === activePresetId)
+    ?? topPresets[0]
+    ?? props.browserData.presets[0]
+    ?? null;
 
   return (
     <main className="preset-browser-page">
+      {activePreset && (
+        <section
+          className="scenario-hero"
+          style={{ backgroundImage: `linear-gradient(180deg, rgba(5, 8, 18, 0.2), rgba(3, 6, 14, 0.85)), url(${activePreset.bannerImage ?? activePreset.coverImage})` }}
+        >
+          <div className="scenario-hero-copy">
+            <span className="scenario-hero-kicker">{activePreset.official ? copy.official : copy.community}</span>
+            <h1>{activePreset.title}</h1>
+            <p>{activePreset.subtitle}</p>
+            <div className="scenario-hero-metrics">
+              <span>{`${activePreset.stats.rounds} ${copy.roundsLabel}`}</span>
+              <span>{`${activePreset.stats.games} ${copy.turnsLabel}`}</span>
+              <span>{`${activePreset.stats.players ?? "N/A"} ${copy.copiesLabel}`}</span>
+              <span>{activePreset.creator}</span>
+            </div>
+            <button type="button" className="scenario-hero-cta" onClick={() => props.onLaunchPreset(activePreset.id)}>
+              {copy.launchNow}
+            </button>
+          </div>
+          <div className="scenario-hero-about">
+            <h2>{copy.about}</h2>
+            <div className="scenario-about-chips">
+              <span>{activePreset.startDate.label}</span>
+              <span>{activePreset.era}</span>
+              <span>{activePreset.category}</span>
+            </div>
+            <p>{activePreset.description}</p>
+          </div>
+        </section>
+      )}
+
       <section className="preset-browser-top">
         <div className="preset-browser-toolbar">
           <div className="preset-browser-copy">
             <span className="preset-browser-kicker">{props.eyebrow}</span>
             <div className="preset-browser-stats">
-              <span className="browser-summary-pill">{`${props.browserData.presets.filter((preset) => preset.playable).length} playable presets`}</span>
-              <span className="browser-summary-pill">{`${props.recentGames.length} local games`}</span>
+              <span className="browser-summary-pill">{`${props.browserData.presets.filter((preset) => preset.playable).length} ${copy.playable}`}</span>
+              <span className="browser-summary-pill">{`${props.recentGames.length} ${copy.localGames}`}</span>
             </div>
           </div>
           <div className="preset-browser-filters">
@@ -157,15 +240,20 @@ export function PresetBrowserPage(props: {
 
         <div className="top-preset-grid">
           {topPresets.map((preset, index) => (
-            <TopPresetCard key={preset.id} preset={preset} rank={index + 1} onOpen={() => props.onLaunchPreset(preset.id)} />
+            <div key={preset.id} className={`top-preset-wrapper${activePreset?.id === preset.id ? " is-active" : ""}`}>
+              <TopPresetCard preset={preset} rank={index + 1} onOpen={() => props.onLaunchPreset(preset.id)} />
+              <button type="button" className="top-preset-preview" onClick={() => setActivePresetId(preset.id)}>
+                {copy.preview}
+              </button>
+            </div>
           ))}
         </div>
       </section>
 
       <section className="preset-browser-section">
         <div className="browser-section-heading">
-          <h2>Mises a jour recentes</h2>
-          <span>Derniers ajustements de presets et mondes communautaires actifs.</span>
+          <h2>{copy.recentUpdates}</h2>
+          <span>{copy.recentUpdatesSub}</span>
         </div>
         <div className="compact-preset-grid">
           {updatedPresets.map((preset) => (
@@ -177,8 +265,8 @@ export function PresetBrowserPage(props: {
       <section className="preset-browser-section dark-categories-section">
         <div className="browser-section-heading on-dark">
           <div>
-            <h2>Categories de presets</h2>
-            <span>Parcourez les familles historiques et communautaires dans un format proche du live.</span>
+            <h2>{copy.categoriesTitle}</h2>
+            <span>{copy.categoriesSub}</span>
           </div>
           <div className="dark-category-tabs">
             {allCategories.map((category) => (
@@ -204,8 +292,8 @@ export function PresetBrowserPage(props: {
       <section className="preset-browser-section split-browser-section">
         <div className="split-browser-column">
           <div className="browser-section-heading">
-            <h2>Presets communaute populaires</h2>
-            <span>Des mondes plus chaotiques, ideaux pour des chronologies inattendues.</span>
+            <h2>{copy.communityPopular}</h2>
+            <span>{copy.communityPopularSub}</span>
           </div>
           <div className="compact-preset-grid is-tall">
             {communityPresets.map((preset) => (
@@ -216,11 +304,11 @@ export function PresetBrowserPage(props: {
 
         <div className="split-browser-column compact-sidebar">
           <div className="browser-section-heading">
-            <h2>Parties locales recentes</h2>
-            <span>Reprenez les dernieres sessions creees sur ce workspace.</span>
+            <h2>{copy.localRecent}</h2>
+            <span>{copy.localRecentSub}</span>
           </div>
           <div className="mini-session-list">
-            {props.recentGames.length === 0 && <div className="browser-empty">Aucune session pour l'instant.</div>}
+            {props.recentGames.length === 0 && <div className="browser-empty">{copy.noSessions}</div>}
             {props.recentGames.slice(0, 4).map((game) => (
               <MiniSessionCard key={game.id} game={game} />
             ))}

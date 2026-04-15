@@ -1,0 +1,497 @@
+{
+  "schemaVersion": 1,
+  "lodSpecVersion": 1,
+  "visualTargetsVersion": 1,
+  "thresholds": {
+    "farMinWidth": 84,
+    "globalMinWidth": 56,
+    "regionalMinWidth": 24,
+    "closeMinWidth": 10
+  },
+  "closeDetailRules": {
+    "countryLabelsRequireSelection": true,
+    "regionLabelsRequireSelection": true,
+    "regionLabelsCloseMaxWidth": 12.5,
+    "citiesCloseRequireSelection": true,
+    "citiesDetailRequireSelection": true,
+    "effectsDetailRequireSelection": true,
+    "artifactsDetailRequireSelection": true,
+    "provincesPreferSelectionUntilWidth": 16
+  },
+  "targets": [
+    {
+      "id": "globe",
+      "label": "Globe 3D",
+      "cameraWidth": 100,
+      "zoomBand": "far",
+      "expectations": [
+        "Globe renderer enabled",
+        "No region labels",
+        "No city markers"
+      ],
+      "contexts": [
+        {
+          "id": "default-unselected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": false,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 7,
+            "labelMinWidth": 5.3,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 0.72,
+            "effectMinDistance": 1.1,
+            "effectMaxCount": 22,
+            "artifactMinDistance": 0.95,
+            "artifactMaxCount": 20,
+            "cityMinDistance": 1.22,
+            "cityMaxCount": 26
+          }
+        },
+        {
+          "id": "default-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": false,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 7,
+            "labelMinWidth": 5.3,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 0.72,
+            "effectMinDistance": 1.1,
+            "effectMaxCount": 22,
+            "artifactMinDistance": 0.95,
+            "artifactMaxCount": 20,
+            "cityMinDistance": 1.22,
+            "cityMaxCount": 26
+          }
+        },
+        {
+          "id": "invisible-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": false,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 11,
+            "labelMinWidth": 5.3,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 0.72,
+            "effectMinDistance": 0.77,
+            "effectMaxCount": 31,
+            "artifactMinDistance": 0.665,
+            "artifactMaxCount": 28,
+            "cityMinDistance": 0.854,
+            "cityMaxCount": 36
+          }
+        }
+      ]
+    },
+    {
+      "id": "world",
+      "label": "Monde",
+      "cameraWidth": 62,
+      "zoomBand": "global",
+      "expectations": [
+        "Single flat map copy",
+        "Country labels only",
+        "No region markers"
+      ],
+      "contexts": [
+        {
+          "id": "default-unselected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 10,
+            "labelMinWidth": 5.3,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.032,
+            "effectMinDistance": 1.1,
+            "effectMaxCount": 22,
+            "artifactMinDistance": 0.95,
+            "artifactMaxCount": 20,
+            "cityMinDistance": 1.22,
+            "cityMaxCount": 26
+          }
+        },
+        {
+          "id": "default-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 10,
+            "labelMinWidth": 5.3,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.032,
+            "effectMinDistance": 1.1,
+            "effectMaxCount": 22,
+            "artifactMinDistance": 0.95,
+            "artifactMaxCount": 20,
+            "cityMinDistance": 1.22,
+            "cityMaxCount": 26
+          }
+        },
+        {
+          "id": "invisible-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 16,
+            "labelMinWidth": 5.3,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.032,
+            "effectMinDistance": 0.77,
+            "effectMaxCount": 31,
+            "artifactMinDistance": 0.665,
+            "artifactMaxCount": 28,
+            "cityMinDistance": 0.854,
+            "cityMaxCount": 36
+          }
+        }
+      ]
+    },
+    {
+      "id": "europe",
+      "label": "Europe",
+      "cameraWidth": 28,
+      "zoomBand": "regional",
+      "expectations": [
+        "Country labels readable",
+        "No province labels",
+        "Frontline links allowed"
+      ],
+      "contexts": [
+        {
+          "id": "default-unselected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 12,
+            "labelMinWidth": 4.4,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.1,
+            "effectMaxCount": 22,
+            "artifactMinDistance": 0.95,
+            "artifactMaxCount": 20,
+            "cityMinDistance": 1.22,
+            "cityMaxCount": 26
+          }
+        },
+        {
+          "id": "default-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 12,
+            "labelMinWidth": 4.4,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.1,
+            "effectMaxCount": 22,
+            "artifactMinDistance": 0.95,
+            "artifactMaxCount": 20,
+            "cityMinDistance": 1.22,
+            "cityMaxCount": 26
+          }
+        },
+        {
+          "id": "invisible-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": false,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 19,
+            "labelMinWidth": 4.4,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 0.77,
+            "effectMaxCount": 31,
+            "artifactMinDistance": 0.665,
+            "artifactMaxCount": 28,
+            "cityMinDistance": 0.854,
+            "cityMaxCount": 36
+          }
+        }
+      ]
+    },
+    {
+      "id": "country",
+      "label": "Pays",
+      "cameraWidth": 16,
+      "zoomBand": "close",
+      "expectations": [
+        "Selected country emphasized",
+        "Province borders visible",
+        "Country label visible for selected nation"
+      ],
+      "contexts": [
+        {
+          "id": "default-unselected",
+          "policy": {
+            "showCountryLabels": false,
+            "showRegionLabels": false,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 6,
+            "labelMinWidth": 4.2,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.8,
+            "effectMaxCount": 7,
+            "artifactMinDistance": 1.55,
+            "artifactMaxCount": 6,
+            "cityMinDistance": 2.6,
+            "cityMaxCount": 5
+          }
+        },
+        {
+          "id": "default-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": true,
+            "labelDensityLimit": 6,
+            "labelMinWidth": 4.2,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.8,
+            "effectMaxCount": 7,
+            "artifactMinDistance": 1.55,
+            "artifactMaxCount": 6,
+            "cityMinDistance": 2.6,
+            "cityMaxCount": 5
+          }
+        },
+        {
+          "id": "invisible-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": false,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": true,
+            "labelDensityLimit": 9,
+            "labelMinWidth": 4.2,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.26,
+            "effectMaxCount": 10,
+            "artifactMinDistance": 1.085,
+            "artifactMaxCount": 8,
+            "cityMinDistance": 1.82,
+            "cityMaxCount": 7
+          }
+        }
+      ]
+    },
+    {
+      "id": "region",
+      "label": "Region",
+      "cameraWidth": 12,
+      "zoomBand": "close",
+      "expectations": [
+        "Province labels allowed",
+        "Cities filtered to selected country",
+        "No label overlap in dense areas"
+      ],
+      "contexts": [
+        {
+          "id": "default-unselected",
+          "policy": {
+            "showCountryLabels": false,
+            "showRegionLabels": false,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 6,
+            "labelMinWidth": 4.2,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.8,
+            "effectMaxCount": 7,
+            "artifactMinDistance": 1.55,
+            "artifactMaxCount": 6,
+            "cityMinDistance": 2.6,
+            "cityMaxCount": 5
+          }
+        },
+        {
+          "id": "default-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": true,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": true,
+            "labelDensityLimit": 6,
+            "labelMinWidth": 4.2,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.8,
+            "effectMaxCount": 7,
+            "artifactMinDistance": 1.55,
+            "artifactMaxCount": 6,
+            "cityMinDistance": 2.6,
+            "cityMaxCount": 5
+          }
+        },
+        {
+          "id": "invisible-selected",
+          "policy": {
+            "showCountryLabels": true,
+            "showRegionLabels": true,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": true,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": true,
+            "labelDensityLimit": 9,
+            "labelMinWidth": 4.2,
+            "labelMinHeight": 1.28,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.26,
+            "effectMaxCount": 10,
+            "artifactMinDistance": 1.085,
+            "artifactMaxCount": 8,
+            "cityMinDistance": 1.82,
+            "cityMaxCount": 7
+          }
+        }
+      ]
+    },
+    {
+      "id": "detail",
+      "label": "Detail",
+      "cameraWidth": 7,
+      "zoomBand": "detail",
+      "expectations": [
+        "Province labels prioritized",
+        "Country labels hidden",
+        "City labels and artifacts decluttered"
+      ],
+      "contexts": [
+        {
+          "id": "default-unselected",
+          "policy": {
+            "showCountryLabels": false,
+            "showRegionLabels": false,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": false,
+            "showEffectsLayer": false,
+            "showArtifactsLayer": false,
+            "showCitiesLayer": false,
+            "labelDensityLimit": 6,
+            "labelMinWidth": 4.8,
+            "labelMinHeight": 1.3,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.45,
+            "effectMaxCount": 8,
+            "artifactMinDistance": 1.2,
+            "artifactMaxCount": 7,
+            "cityMinDistance": 1.65,
+            "cityMaxCount": 7
+          }
+        },
+        {
+          "id": "default-selected",
+          "policy": {
+            "showCountryLabels": false,
+            "showRegionLabels": true,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": false,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": true,
+            "labelDensityLimit": 6,
+            "labelMinWidth": 4.8,
+            "labelMinHeight": 1.3,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.45,
+            "effectMaxCount": 8,
+            "artifactMinDistance": 1.2,
+            "artifactMaxCount": 7,
+            "cityMinDistance": 1.65,
+            "cityMaxCount": 7
+          }
+        },
+        {
+          "id": "invisible-selected",
+          "policy": {
+            "showCountryLabels": false,
+            "showRegionLabels": true,
+            "showProvinceLayer": true,
+            "showFrontlineLayer": false,
+            "showEffectsLayer": true,
+            "showArtifactsLayer": true,
+            "showCitiesLayer": true,
+            "labelDensityLimit": 9,
+            "labelMinWidth": 4.8,
+            "labelMinHeight": 1.3,
+            "countryLabelZoomFactor": 1.7,
+            "effectMinDistance": 1.015,
+            "effectMaxCount": 11,
+            "artifactMinDistance": 0.84,
+            "artifactMaxCount": 10,
+            "cityMinDistance": 1.155,
+            "cityMaxCount": 10
+          }
+        }
+      ]
+    }
+  ]
+}

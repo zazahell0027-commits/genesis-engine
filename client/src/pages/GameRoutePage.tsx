@@ -119,6 +119,12 @@ function isQuickActionKind(value: string): value is QuickActionKind {
   return value === "attack" || value === "defend" || value === "stabilize" || value === "invest";
 }
 
+function isTextInputElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
 export function GameRoutePage(props: {
   onError: (message: string | null) => void;
   onTokenBalanceChange: (value: number | null) => void;
@@ -145,10 +151,30 @@ export function GameRoutePage(props: {
   const [advisorPrompt, setAdvisorPrompt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [mapFocus, setMapFocus] = useState<MapFocus>({ countryIds: [], provinceIds: [], token: 0 });
+  const compactHudQuery = "(max-width: 1500px), (max-height: 820px)";
+  const [isCompactHud, setIsCompactHud] = useState<boolean>(() => (
+    typeof window !== "undefined" ? window.matchMedia(compactHudQuery).matches : false
+  ));
   const busy = busyAction !== null;
 
   function toggleLeftPanel(next: Exclude<OverlayPanel, "none">): void {
-    setPanel((current) => (current === next ? "none" : next));
+    setPanel((current) => {
+      const resolved = current === next ? "none" : next;
+      if (resolved !== "none" && isCompactHud) {
+        setRightPanel("none");
+      }
+      return resolved;
+    });
+  }
+
+  function toggleRightPanel(next: Exclude<RightPanel, "none">): void {
+    setRightPanel((current) => {
+      const resolved = current === next ? "none" : next;
+      if (resolved !== "none" && isCompactHud) {
+        setPanel("none");
+      }
+      return resolved;
+    });
   }
 
   useEffect(() => {
@@ -176,7 +202,7 @@ export function GameRoutePage(props: {
         setDiplomacyTargetId(loaded.countries.find((country) => country.id !== loaded.playerCountryId)?.id ?? loaded.playerCountryId);
         setAdvisorPrompt("");
         setPanel("actions");
-        setRightPanel("advisor");
+        setRightPanel(isCompactHud ? "none" : "advisor");
         onTokenBalanceChange(loaded.tokenBalance);
       } catch (error) {
         onError(error instanceof Error ? error.message : "Impossible de charger la partie");
@@ -189,22 +215,63 @@ export function GameRoutePage(props: {
     return () => {
       cancelled = true;
     };
-  }, [gameId, onError, onTokenBalanceChange]);
+  }, [gameId, isCompactHud, onError, onTokenBalanceChange]);
 
   useEffect(() => () => onTokenBalanceChange(null), [onTokenBalanceChange]);
 
   useEffect(() => {
-    function handleEscape(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      setPanel("none");
+    const mediaQuery = window.matchMedia(compactHudQuery);
+    function syncLayout(): void {
+      setIsCompactHud(mediaQuery.matches);
+    }
+
+    syncLayout();
+    mediaQuery.addEventListener("change", syncLayout);
+    return () => {
+      mediaQuery.removeEventListener("change", syncLayout);
+    };
+  }, [compactHudQuery]);
+
+  useEffect(() => {
+    if (!isCompactHud) return;
+    if (panel !== "none" && rightPanel !== "none") {
       setRightPanel("none");
+    }
+  }, [isCompactHud, panel, rightPanel]);
+
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        setPanel("none");
+        setRightPanel("none");
+        return;
+      }
+
+      if (isTextInputElement(event.target)) return;
+
+      if (event.key === "1") {
+        setPanel((current) => current === "chats" ? "none" : "chats");
+        if (isCompactHud) setRightPanel("none");
+      } else if (event.key === "2") {
+        setPanel((current) => current === "actions" ? "none" : "actions");
+        if (isCompactHud) setRightPanel("none");
+      } else if (event.key === "3") {
+        setPanel((current) => current === "search" ? "none" : "search");
+        if (isCompactHud) setRightPanel("none");
+      } else if (event.key.toLowerCase() === "a") {
+        setRightPanel((current) => current === "advisor" ? "none" : "advisor");
+        if (isCompactHud) setPanel("none");
+      } else if (event.key.toLowerCase() === "t") {
+        setRightPanel((current) => current === "timeline" ? "none" : "timeline");
+        if (isCompactHud) setPanel("none");
+      }
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, []);
+  }, [isCompactHud]);
 
   async function applyGameUpdate(updated: GameState, nextPanel?: OverlayPanel): Promise<void> {
     setGame(updated);
@@ -271,6 +338,13 @@ export function GameRoutePage(props: {
   const mapFocusCountryIds = mapFocus.countryIds;
   const mapFocusProvinceIds = mapFocus.provinceIds;
   const mapFocusToken = mapFocus.token;
+  const advisorActionSuggestions = (advisorResponse?.suggestions ?? [])
+    .filter((suggestion) => suggestion.kind !== "diplomacy")
+    .slice(0, 3);
+  const advisorDiplomacySuggestions = (advisorResponse?.suggestions ?? [])
+    .filter((suggestion) => suggestion.kind === "diplomacy" && suggestion.targetCountryId)
+    .slice(0, 3);
+  const gameStageClassName = `game-stage${panel !== "none" ? " has-left-panel" : ""}${rightPanel !== "none" ? " has-right-panel" : ""}${isCompactHud ? " is-compact-hud" : ""}`;
 
   async function handleQueueOrder(): Promise<void> {
     if (!orderText.trim()) return;
@@ -328,7 +402,7 @@ export function GameRoutePage(props: {
     try {
       const updated = await jumpForward(currentGame.id, jumpStep);
       await applyGameUpdate(updated, "events");
-      setRightPanel("advisor");
+      setRightPanel(isCompactHud ? "none" : "advisor");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Impossible d'avancer dans le temps");
     } finally {
@@ -344,7 +418,7 @@ export function GameRoutePage(props: {
     try {
       const updated = await jumpToMajorEvent(currentGame.id);
       await applyGameUpdate(updated, "events");
-      setRightPanel("timeline");
+      setRightPanel(isCompactHud ? "none" : "timeline");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Impossible d'atteindre un evenement majeur");
     } finally {
@@ -387,6 +461,7 @@ export function GameRoutePage(props: {
         ...current.filter((entry) => `${entry.tick}:${entry.snapshotId ?? "live"}` !== `${response.tick}:${response.snapshotId ?? "live"}`)
       ].slice(0, 8));
       await applyGameUpdate(updated);
+      if (isCompactHud) setPanel("none");
       setRightPanel("advisor");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Impossible de charger le conseiller");
@@ -403,6 +478,7 @@ export function GameRoutePage(props: {
       setDiplomacyTargetId(suggestion.targetCountryId);
       setDiplomacyText(suggestion.orderText);
       setPanel("chats");
+      if (isCompactHud) setRightPanel("none");
       return;
     }
 
@@ -450,25 +526,69 @@ export function GameRoutePage(props: {
       provinceIds: focus.provinceIds,
       token: current.token + 1
     }));
+    setPanel("events");
+    if (isCompactHud) {
+      setRightPanel("none");
+    }
+  }
+
+  function applySnapshotFocus(snapshotId: string | null): void {
+    const currentGame = game;
+    if (!currentGame) return;
+
+    if (!snapshotId) {
+      setMapFocus((current) => ({
+        countryIds: [],
+        provinceIds: [],
+        token: current.token + 1
+      }));
+      return;
+    }
+
+    const matchingSnapshot = currentGame.snapshots.find((snapshotItem) => snapshotItem.id === snapshotId);
+    const primaryEventId = matchingSnapshot?.eventIds[0] ?? null;
+    const primaryEvent = primaryEventId
+      ? currentGame.events.find((event) => event.id === primaryEventId) ?? null
+      : null;
+    const focus = extractEventFocus(primaryEvent);
+    setMapFocus((current) => ({
+      countryIds: focus.countryIds,
+      provinceIds: focus.provinceIds,
+      token: current.token + 1
+    }));
   }
 
   function handleOlderSnapshot(): void {
     if (!olderSnapshot) return;
     setViewedSnapshotId(olderSnapshot.id);
+    applySnapshotFocus(olderSnapshot.id);
   }
 
   function handleNewerSnapshot(): void {
     if (viewedSnapshotId && newerSnapshot) {
       setViewedSnapshotId(newerSnapshot.id);
+      applySnapshotFocus(newerSnapshot.id);
       return;
     }
 
     setViewedSnapshotId(null);
+    applySnapshotFocus(null);
   }
 
   return (
     <main className="game-route">
-      <div className="game-stage">
+      <div className={gameStageClassName}>
+        {(panel !== "none" || rightPanel !== "none") && (
+          <button
+            type="button"
+            className="panel-dismiss-hitbox"
+            aria-label="Fermer les panneaux"
+            onClick={() => {
+              setPanel("none");
+              setRightPanel("none");
+            }}
+          />
+        )}
         <button type="button" className="floating-corner-button" onClick={() => toggleLeftPanel("menu")}>
           <MenuIcon />
         </button>
@@ -484,7 +604,7 @@ export function GameRoutePage(props: {
           </button>
           <div className="jump-capsule-copy">
             <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
-            <span>{snapshot ? `Lecture - Tick ${snapshot.tick}` : `Live - Tick ${game.tick}`}</span>
+            <span>{snapshot ? `Lecture - Tick ${snapshot.tick}` : `En direct - Tick ${game.tick}`}</span>
           </div>
           <button
             type="button"
@@ -500,7 +620,7 @@ export function GameRoutePage(props: {
           type="button"
           className="timeline-toggle-button"
           aria-label="Chronologie"
-          onClick={() => setRightPanel(rightPanel === "timeline" ? "none" : "timeline")}
+          onClick={() => toggleRightPanel("timeline")}
         >
           <CalendarIcon />
         </button>
@@ -546,7 +666,7 @@ export function GameRoutePage(props: {
           </button>
         </div>
 
-        <button type="button" className="floating-profile-button" onClick={() => setRightPanel(rightPanel === "advisor" ? "none" : "advisor")}>
+        <button type="button" className="floating-profile-button" onClick={() => toggleRightPanel("advisor")}>
           <AvatarIcon />
         </button>
 
@@ -608,19 +728,19 @@ export function GameRoutePage(props: {
                     ))}
                   </div>
                 ) : (
-                  <div className="event-impact-empty">No direct visual map impact is recorded for this event.</div>
+                  <div className="event-impact-empty">Aucun impact cartographique direct n'est enregistre pour cet evenement.</div>
                 )}
                 <button type="button" className="secondary-button map-change-button" onClick={handleMapChangeView}>
                   <MapIcon />
-                  <span>View Map Changes</span>
+                  <span>Voir les changements de carte</span>
                 </button>
                 <div className="event-footer">
                   <span><CalendarIcon /> {activeEvent.dateLabel}</span>
-                  <span>{activeEvent.mapChangeSummary ?? "No map summary recorded."}</span>
+                  <span>{activeEvent.mapChangeSummary ?? "Aucun resume cartographique n'est disponible."}</span>
                 </div>
               </>
             ) : (
-              <div className="empty-panel">No event window is available yet. Jump forward to generate a world update.</div>
+              <div className="empty-panel">Aucune fenetre d'evenements pour le moment. Avancez dans le temps pour produire une mise a jour du monde.</div>
             )}
 
             {windowEvents.length > 0 && (
@@ -690,13 +810,67 @@ export function GameRoutePage(props: {
               </div>
             )}
 
+            <label className="field-block">
+              <span>Pays actif</span>
+              <select
+                value={selectedCountryId ?? ""}
+                onChange={(event) => {
+                  const nextCountryId = event.target.value || null;
+                  setSelectedCountryId(nextCountryId);
+                  setSelectedProvinceId(null);
+                  if (nextCountryId && nextCountryId !== game.playerCountryId) {
+                    setDiplomacyTargetId(nextCountryId);
+                  }
+                }}
+              >
+                {activeCountries.map((country) => (
+                  <option key={country.id} value={country.id}>{country.name}</option>
+                ))}
+              </select>
+            </label>
+
+            {advisorActionSuggestions.length > 0 && (
+              <div className="advisor-shortcut-row">
+                {advisorActionSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.id}
+                    type="button"
+                    className="advisor-shortcut-chip"
+                    onClick={() => {
+                      setOrderText(suggestion.orderText);
+                      if (suggestion.targetCountryId) setSelectedCountryId(suggestion.targetCountryId);
+                    }}
+                  >
+                    <strong>{suggestion.label}</strong>
+                    <span>{suggestion.impact}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <textarea
               value={orderText}
               onChange={(event) => setOrderText(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void handleQueueOrder();
+                }
+              }}
               rows={5}
               className="large-textarea"
               placeholder="Decrivez une action concrete: offensive, reforme interne, pacte diplomatique, pression economique..."
             />
+            <p className="input-hint">Ctrl+Enter pour ajouter rapidement l'ordre a la file.</p>
+
+            <button
+              type="button"
+              className="secondary-button advisor-help-button"
+              onClick={handleAdvisor}
+              disabled={busy}
+            >
+              {busyAction === "advisor" ? "Preparation du brief..." : "Aider a trouver des idees d'actions"}
+            </button>
 
             <div className="quick-action-row">
               {visibleQuickActions.map((action) => (
@@ -713,7 +887,7 @@ export function GameRoutePage(props: {
               ))}
             </div>
 
-            <div className="panel-actions">
+            <div className="panel-actions panel-command-bar">
               <button type="button" className="primary-button" onClick={handleQueueOrder} disabled={busy || !orderText.trim()}>
                 {busyAction === "order" ? "Interpretation..." : "Ajouter a la file"}
               </button>
@@ -768,6 +942,25 @@ export function GameRoutePage(props: {
               </select>
             </label>
 
+            {advisorDiplomacySuggestions.length > 0 && (
+              <div className="advisor-shortcut-row diplomacy">
+                {advisorDiplomacySuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.id}
+                    type="button"
+                    className="advisor-shortcut-chip"
+                    onClick={() => {
+                      if (suggestion.targetCountryId) setDiplomacyTargetId(suggestion.targetCountryId);
+                      setDiplomacyText(suggestion.orderText);
+                    }}
+                  >
+                    <strong>{suggestion.targetCountryName ?? suggestion.label}</strong>
+                    <span>{suggestion.rationale}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="chat-thread">
               {busyAction === "diplomacy" && diplomacyText.trim() && diplomacyTarget && (
                 <article className="chat-card stance-neutral is-pending">
@@ -791,12 +984,19 @@ export function GameRoutePage(props: {
             <textarea
               value={diplomacyText}
               onChange={(event) => setDiplomacyText(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void handleSendDiplomacy();
+                }
+              }}
               rows={4}
               className="large-textarea"
               placeholder="Proposez un pacte, posez des conditions, menacez ou ouvrez une voie de negociation."
             />
+            <p className="input-hint">Ctrl+Enter pour envoyer le message diplomatique.</p>
 
-            <div className="panel-actions">
+            <div className="panel-actions panel-command-bar">
               <button type="button" className="primary-button" onClick={handleSendDiplomacy} disabled={busy || !diplomacyText.trim()}>
                 {busyAction === "diplomacy" ? "Negociation..." : "Envoyer"}
               </button>
@@ -818,7 +1018,7 @@ export function GameRoutePage(props: {
 
             <div className="advisor-summary">
               <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
-              <span>{`${game.preset.title} | ${game.playerCountryName}${viewedSnapshotId ? " | Snapshot" : ""}`}</span>
+              <span>{`${game.preset.title} | ${game.playerCountryName}${viewedSnapshotId ? " | Historique" : ""}`}</span>
             </div>
 
             <label className="field-block">
@@ -826,6 +1026,12 @@ export function GameRoutePage(props: {
               <textarea
                 value={advisorPrompt}
                 onChange={(event) => setAdvisorPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    void handleAdvisor();
+                  }
+                }}
                 rows={3}
                 className="large-textarea advisor-question-textarea"
                 placeholder={viewedSnapshotId
@@ -833,6 +1039,7 @@ export function GameRoutePage(props: {
                   : "Ex: Priorite defense, economie ou diplomatie pour les 2 prochains rounds ?"}
               />
             </label>
+            <p className="input-hint">Ctrl+Enter pour lancer l'analyse du conseiller.</p>
 
             {advisorResponse ? (
               <article className="advisor-card">
@@ -894,7 +1101,7 @@ export function GameRoutePage(props: {
               </div>
             )}
 
-            <div className="panel-actions">
+            <div className="panel-actions panel-command-bar">
               <button type="button" className="primary-button" onClick={handleAdvisor} disabled={busy}>
                 {busyAction === "advisor"
                   ? "Analyse..."

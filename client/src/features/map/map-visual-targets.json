@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "globe",
+      "label": "Globe 3D",
+      "cameraWidth": 100,
+      "expectations": [
+        "Globe renderer enabled",
+        "No region labels",
+        "No city markers"
+      ]
+    },
+    {
+      "id": "world",
+      "label": "Monde",
+      "cameraWidth": 62,
+      "expectations": [
+        "Single flat map copy",
+        "Country labels only",
+        "No region markers"
+      ]
+    },
+    {
+      "id": "europe",
+      "label": "Europe",
+      "cameraWidth": 28,
+      "expectations": [
+        "Country labels readable",
+        "No province labels",
+        "Frontline links allowed"
+      ]
+    },
+    {
+      "id": "country",
+      "label": "Pays",
+      "cameraWidth": 16,
+      "expectations": [
+        "Selected country emphasized",
+        "Province borders visible",
+        "Country label visible for selected nation"
+      ]
+    },
+    {
+      "id": "region",
+      "label": "Region",
+      "cameraWidth": 12,
+      "expectations": [
+        "Province labels allowed",
+        "Cities filtered to selected country",
+        "No label overlap in dense areas"
+      ]
+    },
+    {
+      "id": "detail",
+      "label": "Detail",
+      "cameraWidth": 7,
+      "expectations": [
+        "Province labels prioritized",
+        "Country labels hidden",
+        "City labels and artifacts decluttered"
+      ]
+    }
+  ]
+}
