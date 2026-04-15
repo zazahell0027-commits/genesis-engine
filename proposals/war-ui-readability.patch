@@ -1,0 +1,282 @@
+diff --git a/client/src/pages/GameRoutePage.tsx b/client/src/pages/GameRoutePage.tsx
+--- a/client/src/pages/GameRoutePage.tsx
++++ b/client/src/pages/GameRoutePage.tsx
+@@
+ function isTextInputElement(target: EventTarget | null): boolean {
+   if (!(target instanceof HTMLElement)) return false;
+   const tag = target.tagName;
+   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+ }
++
++function getCountryStrategicTone(country: GameState["countries"][number], playerCountryId: string): {
++  title: string;
++  detail: string;
++} {
++  if (country.id === playerCountryId) {
++    if (country.unrest >= 55 || country.stability <= 45) {
++      return {
++        title: "Front interieur fragile",
++        detail: "Priorite a la stabilisation, a l'ordre public et a la reprise economique avant une escalade externe."
++      };
++    }
++
++    return {
++      title: "Pilotage national",
++      detail: "Utilisez surtout les actions internes pour renforcer l'economie, la cohesion et la capacite militaire avant le prochain round."
++    };
++  }
++
++  if (country.army >= 70 || country.tension >= 65) {
++    return {
++      title: "Risque de theatre exterieur",
++      detail: "Cette puissance peut repondre rapidement. Toute action offensive ou demonstrative doit etre accompagnee d'un contexte diplomatique clair."
++    };
++  }
++
++  return {
++    title: "Fenetre diplomatique ou coercitive",
++    detail: "Le pays selectionne peut etre influence par pression, defense regionale ou opportunite de negociation."
++  };
++}
+@@
+-  const visibleQuickActions = selectedCountry?.id === game.playerCountryId
+-    ? game.quickActions.filter((action) => action.kind === "invest" || action.kind === "stabilize")
+-    : game.quickActions.filter((action) => action.kind === "attack" || action.kind === "defend");
++  const selectedCountryIsPlayer = selectedCountry?.id === game.playerCountryId;
++  const militaryQuickActions = game.quickActions.filter((action) => action.kind === "attack" || action.kind === "defend");
++  const domesticQuickActions = game.quickActions.filter((action) => action.kind === "invest" || action.kind === "stabilize");
++  const strategicTone = selectedCountry
++    ? getCountryStrategicTone(selectedCountry, game.playerCountryId)
++    : null;
+@@
+             {selectedCountry && (
+               <div className="selected-country-card">
+                 <strong>{selectedCountry.name}</strong>
+                 <span>{selectedCountry.descriptor}</span>
+                 <span>{`Puissance ${selectedCountry.power} | Stabilite ${selectedCountry.stability} | Tension ${selectedCountry.tension}`}</span>
+                 <span>{`Armee ${selectedCountry.army} | Industrie ${selectedCountry.industry} | Fortification ${selectedCountry.fortification} | Unrest ${selectedCountry.unrest}`}</span>
+               </div>
+             )}
++
++            {selectedCountry && strategicTone && (
++              <div className="selected-country-context">
++                <div className="selected-country-context-copy">
++                  <strong>{strategicTone.title}</strong>
++                  <p>{strategicTone.detail}</p>
++                </div>
++
++                <div className="country-context-grid">
++                  <article className="country-context-card tone-power">
++                    <span>Puissance</span>
++                    <strong>{selectedCountry.power}</strong>
++                  </article>
++                  <article className="country-context-card tone-stability">
++                    <span>Stabilite</span>
++                    <strong>{selectedCountry.stability}</strong>
++                  </article>
++                  <article className="country-context-card tone-tension">
++                    <span>Tension</span>
++                    <strong>{selectedCountry.tension}</strong>
++                  </article>
++                  <article className="country-context-card tone-army">
++                    <span>Armee</span>
++                    <strong>{selectedCountry.army}</strong>
++                  </article>
++                </div>
++              </div>
++            )}
+@@
+-            <div className="quick-action-row">
+-              {visibleQuickActions.map((action) => (
+-                <button
+-                  key={action.id}
+-                  type="button"
+-                  className="quick-action-card"
+-                  onClick={() => handleQuickAction(action.kind)}
+-                  disabled={busy}
+-                >
+-                  <strong>{action.label}</strong>
+-                  <span>{action.description}</span>
+-                </button>
+-              ))}
+-            </div>
++            <div className="action-section">
++              <div className="action-section-header">
++                <strong>{selectedCountryIsPlayer ? "Pilotage interne" : "Theatre exterieur"}</strong>
++                <span>
++                  {selectedCountryIsPlayer
++                    ? "Actions de consolidation, economie et stabilisation pour preparer les prochains rounds."
++                    : "Actions visibles sur le plan militaire et geopolitique contre le pays selectionne."}
++                </span>
++              </div>
++
++              <div className="quick-action-row quick-action-row-emphasis">
++                {(selectedCountryIsPlayer ? domesticQuickActions : militaryQuickActions).map((action) => (
++                  <button
++                    key={action.id}
++                    type="button"
++                    className={`quick-action-card kind-${action.kind}`}
++                    onClick={() => handleQuickAction(action.kind)}
++                    disabled={busy}
++                  >
++                    <strong>{action.label}</strong>
++                    <span>{action.description}</span>
++                  </button>
++                ))}
++              </div>
++            </div>
++
++            <div className="action-section secondary-actions">
++              <div className="action-section-header">
++                <strong>{selectedCountryIsPlayer ? "Options de projection externe" : "Options de preparation nationale"}</strong>
++                <span>
++                  {selectedCountryIsPlayer
++                    ? "Ces actions servent surtout a la pression, a la demonstration de force ou a l'ouverture d'un conflit."
++                    : "Ces actions restent utiles pour absorber le choc, preparer la suite et garder une lecture claire des priorites."}
++                </span>
++              </div>
++
++              <div className="quick-action-row quick-action-row-secondary">
++                {(selectedCountryIsPlayer ? militaryQuickActions : domesticQuickActions).map((action) => (
++                  <button
++                    key={action.id}
++                    type="button"
++                    className={`quick-action-card kind-${action.kind}`}
++                    onClick={() => handleQuickAction(action.kind)}
++                    disabled={busy}
++                  >
++                    <strong>{action.label}</strong>
++                    <span>{action.description}</span>
++                  </button>
++                ))}
++              </div>
++            </div>
+ diff --git a/client/src/styles.css b/client/src/styles.css
+--- a/client/src/styles.css
++++ b/client/src/styles.css
+@@
+ .stats-panel,
+ .launch-note,
+ .selected-country-card,
++.selected-country-context,
+ .round-summary-card,
+ .advisor-summary,
+ .menu-card,
+ .category-card,
+ .community-card,
+@@
+ .quick-action-card {
+   flex-direction: column;
+   cursor: pointer;
+ }
++
++.selected-country-context {
++  margin-top: 0.8rem;
++  display: grid;
++  gap: 0.8rem;
++}
++
++.selected-country-context-copy strong,
++.country-context-card strong,
++.country-context-card span,
++.action-section-header strong,
++.action-section-header span {
++  display: block;
++}
++
++.selected-country-context-copy p {
++  margin: 0.3rem 0 0;
++  color: var(--muted);
++  line-height: 1.5;
++}
++
++.country-context-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 0.65rem;
++}
++
++.country-context-card {
++  padding: 0.8rem 0.9rem;
++  border-radius: 1rem;
++  border: 1px solid var(--line);
++  background: rgba(255, 255, 255, 0.78);
++}
++
++.country-context-card span {
++  color: var(--muted);
++  font-size: 0.76rem;
++  text-transform: uppercase;
++  letter-spacing: 0.08em;
++}
++
++.country-context-card strong {
++  margin-top: 0.35rem;
++  font-size: 1.25rem;
++}
++
++.country-context-card.tone-tension {
++  border-color: rgba(239, 63, 113, 0.2);
++}
++
++.country-context-card.tone-stability {
++  border-color: rgba(79, 168, 114, 0.18);
++}
++
++.country-context-card.tone-army {
++  border-color: rgba(127, 78, 246, 0.18);
++}
++
++.action-section {
++  margin-top: 1rem;
++  display: grid;
++  gap: 0.8rem;
++}
++
++.action-section.secondary-actions {
++  margin-top: 0.9rem;
++}
++
++.action-section-header {
++  display: grid;
++  gap: 0.2rem;
++}
++
++.action-section-header span {
++  color: var(--muted);
++  line-height: 1.45;
++}
++
++.quick-action-row-emphasis .quick-action-card {
++  box-shadow: 0 12px 26px rgba(20, 25, 38, 0.08);
++}
++
++.quick-action-row-secondary .quick-action-card {
++  background: rgba(255, 255, 255, 0.66);
++}
++
++.quick-action-card.kind-attack {
++  border-color: rgba(239, 63, 113, 0.24);
++  background: linear-gradient(180deg, rgba(255, 110, 127, 0.12), rgba(255, 255, 255, 0.9));
++}
++
++.quick-action-card.kind-defend {
++  border-color: rgba(111, 57, 243, 0.22);
++  background: linear-gradient(180deg, rgba(141, 99, 255, 0.12), rgba(255, 255, 255, 0.9));
++}
++
++.quick-action-card.kind-invest {
++  border-color: rgba(209, 136, 34, 0.24);
++  background: linear-gradient(180deg, rgba(240, 180, 90, 0.12), rgba(255, 255, 255, 0.9));
++}
++
++.quick-action-card.kind-stabilize {
++  border-color: rgba(93, 104, 127, 0.22);
++  background: linear-gradient(180deg, rgba(125, 138, 166, 0.12), rgba(255, 255, 255, 0.9));
++}
++
++@media (max-width: 820px) {
++  .country-context-grid {
++    grid-template-columns: 1fr;
++  }
++}
