@@ -256,6 +256,8 @@ export function WorldGeoMap({
   const globeRotationFrameRef = useRef<number | null>(null);
   const pendingGlobeRotationRef = useRef<number | null>(null);
   const tooltipFrameRef = useRef<number | null>(null);
+  const tooltipDelayRef = useRef<number | null>(null);
+  const tooltipHideRef = useRef<number | null>(null);
   const pendingTooltipRef = useRef<Tooltip | null>(null);
   const viewBoxRef = useRef<ViewBox>(DEFAULT_VIEWBOX);
 
@@ -560,6 +562,14 @@ export function WorldGeoMap({
       window.cancelAnimationFrame(tooltipFrameRef.current);
       tooltipFrameRef.current = null;
     }
+    if (tooltipDelayRef.current !== null) {
+      window.clearTimeout(tooltipDelayRef.current);
+      tooltipDelayRef.current = null;
+    }
+    if (tooltipHideRef.current !== null) {
+      window.clearTimeout(tooltipHideRef.current);
+      tooltipHideRef.current = null;
+    }
   }
 
   function scheduleViewBox(next: ViewBox): void {
@@ -700,37 +710,43 @@ export function WorldGeoMap({
   }
 
   function showTooltipFromClientPoint(clientX: number, clientY: number, title: string, subtitle: string): void {
+    if (tooltipDelayRef.current !== null) {
+      window.clearTimeout(tooltipDelayRef.current);
+    }
     const point = toLocalPosition(clientX, clientY);
     if (!point) {
       clearTooltip();
       return;
     }
-    pendingTooltipRef.current = {
-      x: point.x,
-      y: point.y,
-      title,
-      subtitle
-    };
-
-    if (tooltipFrameRef.current !== null) return;
-
-    tooltipFrameRef.current = window.requestAnimationFrame(() => {
-      tooltipFrameRef.current = null;
-      const next = pendingTooltipRef.current;
-      if (!next) return;
-      setTooltip((current) => {
-        if (
-          current
-          && current.title === next.title
-          && current.subtitle === next.subtitle
-          && Math.abs(current.x - next.x) < 3
-          && Math.abs(current.y - next.y) < 3
-        ) {
-          return current;
+    pendingTooltipRef.current = { x: point.x, y: point.y, title, subtitle };
+    tooltipDelayRef.current = window.setTimeout(() => {
+      tooltipDelayRef.current = null;
+      if (tooltipFrameRef.current !== null) return;
+      tooltipFrameRef.current = window.requestAnimationFrame(() => {
+        tooltipFrameRef.current = null;
+        const next = pendingTooltipRef.current;
+        if (!next) return;
+        setTooltip((current) => {
+          if (
+            current
+            && current.title === next.title
+            && current.subtitle === next.subtitle
+            && Math.abs(current.x - next.x) < 3
+            && Math.abs(current.y - next.y) < 3
+          ) {
+            return current;
+          }
+          return next;
+        });
+        if (tooltipHideRef.current !== null) {
+          window.clearTimeout(tooltipHideRef.current);
         }
-        return next;
+        tooltipHideRef.current = window.setTimeout(() => {
+          tooltipHideRef.current = null;
+          setTooltip(null);
+        }, 2400);
       });
-    });
+    }, 180);
   }
 
   function provinceDisplayName(feature: ProvinceFeature): string {

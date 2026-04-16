@@ -6,6 +6,18 @@ function firstSymbolLayerId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id;
 }
 
+function firstCountryLabelLayerId(map: maplibregl.Map): string | undefined {
+  return map.getStyle().layers?.find((layer) => layer.id.startsWith("label_country_"))?.id;
+}
+
+function hideNativeCountryLabels(map: maplibregl.Map): void {
+  for (const layer of map.getStyle().layers ?? []) {
+    if (!layer.id.startsWith("label_country_")) continue;
+    if (!map.getLayer(layer.id)) continue;
+    map.setLayoutProperty(layer.id, "visibility", "none");
+  }
+}
+
 function ensureLayer(map: maplibregl.Map, layer: maplibregl.AddLayerObject, beforeId?: string): void {
   if (map.getLayer(layer.id)) return;
   map.addLayer(layer, beforeId);
@@ -32,6 +44,8 @@ export function addOrUpdateGeoJsonSource(
 
 export function installMapLibreLayers(map: maplibregl.Map): void {
   const beforeSymbols = firstSymbolLayerId(map);
+  const beforeCountryLabels = firstCountryLabelLayerId(map) ?? beforeSymbols;
+  hideNativeCountryLabels(map);
 
   ensureLayer(map, {
     id: LAYERS.countryFill,
@@ -43,7 +57,8 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
         "case",
         ["boolean", ["get", "selected"], false], 0.72,
         ["boolean", ["get", "highlighted"], false], 0.66,
-        0.54
+        ["boolean", ["get", "discovered"], false], 0.5,
+        0.16
       ]
     }
   }, beforeSymbols);
@@ -90,25 +105,30 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
     type: "symbol",
     source: SOURCES.countryLabels,
     minzoom: 1.2,
-    maxzoom: 6.2,
+    maxzoom: 8.25,
+    filter: ["==", ["get", "discovered"], true],
     layout: {
+      "symbol-placement": "line-center",
       "symbol-sort-key": ["get", "labelRank"],
       "text-field": ["get", "name"],
-      "text-size": ["interpolate", ["linear"], ["zoom"], 1.2, 14, 2.6, ["get", "labelSize"], 5.6, 28],
-      "text-letter-spacing": ["interpolate", ["linear"], ["zoom"], 1.2, 0.22, 5.4, 0.11],
-      "text-max-width": 14,
+      "text-size": ["get", "labelSize"],
+      "text-letter-spacing": 0.09,
+      "text-max-angle": 10,
+      "text-max-width": 48,
       "text-allow-overlap": false,
       "text-ignore-placement": false,
-      "text-optional": true
+      "text-optional": true,
+      "text-keep-upright": true,
+      "text-padding": 3
     },
     paint: {
-      "text-color": "rgba(239, 246, 255, 0.78)",
+      "text-color": "rgba(242, 247, 255, 0.94)",
       "text-halo-color": "rgba(1, 7, 16, 0.78)",
-      "text-halo-width": ["interpolate", ["linear"], ["zoom"], 1.2, 1.8, 5.8, 2.7],
+      "text-halo-width": 2.1,
       "text-halo-blur": 0.8,
-      "text-opacity": ["interpolate", ["linear"], ["zoom"], 1.2, 0.65, 2.6, 0.9, 6.2, 0.25]
+      "text-opacity": ["interpolate", ["linear"], ["zoom"], 1.2, 0.9, 6.9, 0.82, 8.15, 0.04]
     }
-  });
+  }, beforeCountryLabels);
 
   ensureLayer(map, {
     id: LAYERS.cityDots,

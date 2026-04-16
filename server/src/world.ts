@@ -17,6 +17,8 @@ import type {
   QuickAction,
   RoundSnapshot,
   ScenarioDescriptor,
+  SpatialKnowledgeTier,
+  SpatialProgressState,
   TimelineEntry,
   WorldIndicators
 } from "@genesis/shared";
@@ -540,49 +542,67 @@ function eventTone(event?: GameEvent): TimelineEntry["tone"] {
   return "normal";
 }
 
-function openingBriefingForPreset(preset: PresetSummary, playerCountryName: string): {
+function openingBriefingForPreset(preset: PresetSummary, playerCountryName: string, locale: "fr" | "en"): {
   title: string;
   description: string;
   locationLabel: string;
   factionLabel: string;
   mapChangeSummary: string;
 } {
+  const french = locale === "fr";
+
   if (preset.id === "world-war-ii") {
     return {
-      title: "Europe Braces for War",
-      description: `${playerCountryName} enters a world of hardening fronts, brittle alliances, and rapidly escalating decisions. Use short jumps if you want control over the opening months.`,
+      title: french ? "L'Europe se prepare a la guerre" : "Europe Braces for War",
+      description: french
+        ? `${playerCountryName} entre dans un monde de fronts qui se durcissent, d'alliances fragiles et de decisions qui escaladent vite. Les sauts courts donnent davantage de controle sur les premiers mois.`
+        : `${playerCountryName} enters a world of hardening fronts, brittle alliances, and rapidly escalating decisions. Use short jumps if you want control over the opening months.`,
       locationLabel: playerCountryName,
-      factionLabel: "World War II",
-      mapChangeSummary: "No border shift yet. Armies, blocs, and national priorities are locking into place."
+      factionLabel: french ? "Seconde Guerre mondiale" : "World War II",
+      mapChangeSummary: french
+        ? "Aucun basculement frontalier pour l'instant. Armees, blocs et priorites nationales se mettent en place."
+        : "No border shift yet. Armies, blocs, and national priorities are locking into place."
     };
   }
 
   if (preset.id === "modern-day" || preset.id === "detailed-2025") {
     return {
-      title: "The Present Order Starts to Fray",
-      description: `${playerCountryName} steps into a live modern sandbox shaped by diplomacy, sanctions, pressure campaigns, and sudden regional crises.`,
+      title: french ? "L'ordre du present se fissure" : "The Present Order Starts to Fray",
+      description: french
+        ? `${playerCountryName} entre dans un bac a sable moderne vivant, faconne par la diplomatie, les sanctions, les campagnes de pression et les crises regionales soudaines.`
+        : `${playerCountryName} steps into a live modern sandbox shaped by diplomacy, sanctions, pressure campaigns, and sudden regional crises.`,
       locationLabel: playerCountryName,
-      factionLabel: preset.title,
-      mapChangeSummary: "The map is stable for now, but the diplomatic and economic balance is already shifting."
+      factionLabel: french ? "Temps present" : preset.title,
+      mapChangeSummary: french
+        ? "La carte reste stable pour l'instant, mais l'equilibre diplomatique et economique bouge deja."
+        : "The map is stable for now, but the diplomatic and economic balance is already shifting."
     };
   }
 
   if (preset.id === "victorian-era") {
     return {
-      title: "Imperial Ambitions Reawaken",
-      description: `${playerCountryName} begins inside a prestige-driven world of empires, reform movements, colonial pressure, and slow-burn industrial competition.`,
+      title: french ? "Les ambitions imperiales se reveillent" : "Imperial Ambitions Reawaken",
+      description: french
+        ? `${playerCountryName} commence dans un monde de prestige imperial, de reformes, de pression coloniale et de competition industrielle au long cours.`
+        : `${playerCountryName} begins inside a prestige-driven world of empires, reform movements, colonial pressure, and slow-burn industrial competition.`,
       locationLabel: playerCountryName,
-      factionLabel: "Victorian Era",
-      mapChangeSummary: "Prestige and influence are in motion even where borders have not changed."
+      factionLabel: french ? "Ere victorienne" : "Victorian Era",
+      mapChangeSummary: french
+        ? "Le prestige et l'influence bougent meme la ou les frontieres n'ont pas change."
+        : "Prestige and influence are in motion even where borders have not changed."
     };
   }
 
   return {
-    title: "World Briefing",
-    description: `The ${preset.title} world is live. Use clear actions, diplomacy, and short jumps to control the opening phase.`,
+    title: french ? "Briefing mondial" : "World Briefing",
+    description: french
+      ? `Le scenario ${preset.title} est vivant. Priorite aux actions claires, a la diplomatie et aux sauts courts pour garder la main sur l'ouverture.`
+      : `The ${preset.title} world is live. Use clear actions, diplomacy, and short jumps to control the opening phase.`,
     locationLabel: playerCountryName,
     factionLabel: preset.title,
-    mapChangeSummary: "No territorial change yet. Pressure is building across the map."
+    mapChangeSummary: french
+      ? "Aucun changement territorial pour l'instant. La pression monte sur l'ensemble de la carte."
+      : "No territorial change yet. Pressure is building across the map."
   };
 }
 
@@ -596,9 +616,14 @@ function relativeUpdatedLabel(timestamp: number): string {
   return `Updated ${Math.floor(hours / 24)}d ago`;
 }
 
+function eventWindowTitle(locale: "fr" | "en"): string {
+  return locale === "fr" ? "Evenements entre dates" : "Events between dates";
+}
+
 function createEmptyEventWindow(game: GameState): EventWindow {
+  const locale = game.locale ?? "fr";
   return {
-    title: "Evenements entre dates",
+    title: eventWindowTitle(locale),
     rangeLabel: `${game.displayDate} -> ${game.displayDate}`,
     activeEventId: game.events[0]?.id ?? null,
     eventIds: game.events[0] ? [game.events[0].id] : [],
@@ -707,6 +732,143 @@ export function computeIndicators(countries: CountryState[]): WorldIndicators {
   return { avgStability, avgWealth, avgTension, conflictLevel };
 }
 
+function normalizeLookup(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function hasSpaceSignal(game: GameState): boolean {
+  return game.events.some((event) => {
+    const haystack = normalizeLookup(`${event.title} ${event.description} ${event.mapChangeSummary ?? ""} ${event.factionLabel ?? ""}`);
+    return /\b(satellite|orbit|orbital|probe|drone|recon|moon|luna|lunar|space|launch|astronaut|rover|station)\b/.test(haystack);
+  });
+}
+
+function knowledgeTierForGame(game: GameState, spaceProgramScore: number): SpatialKnowledgeTier {
+  if (game.preset.category === "science-fiction" || spaceProgramScore >= 80) return "lunar";
+  if (spaceProgramScore >= 55) return "orbital";
+  if (spaceProgramScore >= 32) return "global";
+  if (game.year >= 1950) return "regional";
+  return "limited";
+}
+
+function zoomCapForTier(tier: SpatialKnowledgeTier): number {
+  if (tier === "lunar") return 0.24;
+  if (tier === "orbital") return 0.48;
+  if (tier === "global") return 0.82;
+  if (tier === "regional") return 1.25;
+  return 1.84;
+}
+
+function spatialBriefingLabelForTier(tier: SpatialKnowledgeTier, locale: "fr" | "en"): string {
+  if (locale === "fr") {
+    if (tier === "lunar") return "Lecture lunaire";
+    if (tier === "orbital") return "Lecture orbitale";
+    if (tier === "global") return "Lecture globale";
+    if (tier === "regional") return "Lecture regionale";
+    return "Lecture limitee";
+  }
+
+  if (tier === "lunar") return "Lunar reading";
+  if (tier === "orbital") return "Orbital reading";
+  if (tier === "global") return "Global reading";
+  if (tier === "regional") return "Regional reading";
+  return "Limited reading";
+}
+
+function buildKnownCountryIds(game: GameState, tier: SpatialKnowledgeTier): string[] {
+  const known = new Set<string>();
+  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
+  if (player) {
+    known.add(player.id);
+    for (const country of game.countries) {
+      if (country.continent === player.continent) {
+        known.add(country.id);
+      }
+    }
+  }
+
+  if (tier !== "limited") {
+    for (const countryId of game.preset.recommendedCountries) {
+      known.add(countryId);
+    }
+  }
+
+  const rankedByPower = [...game.countries]
+    .sort((a, b) => b.power - a.power)
+    .map((country) => country.id);
+
+  const visibilityCount = tier === "lunar"
+    ? rankedByPower.length
+    : tier === "orbital"
+      ? 28
+      : tier === "global"
+        ? 18
+        : tier === "regional"
+          ? 10
+          : 5;
+
+  for (const countryId of rankedByPower.slice(0, visibilityCount)) {
+    known.add(countryId);
+  }
+
+  if (tier === "lunar") {
+    for (const country of game.countries) {
+      known.add(country.id);
+    }
+  }
+
+  return [...known];
+}
+
+function computeSpaceProgramScore(game: GameState): number {
+  const player = game.countries.find((country) => country.id === game.playerCountryId) ?? game.countries[0];
+  const investPulse = game.events.filter((event) => event.type === "order" && /invest|industry|infrastructure/i.test(event.description)).length;
+  const growthPulse = game.events.filter((event) => event.type === "major_growth").length;
+  const baseline =
+    (player ? player.wealth * 0.08 + player.industry * 4.2 + player.stability * 0.05 : 0) +
+    game.indicators.avgWealth * 0.04 +
+    game.indicators.avgStability * 0.02 +
+    Math.max(0, game.year - 1800) * 0.004;
+  const signalBoost = hasSpaceSignal(game) ? 16 : 0;
+  const pulseBoost = investPulse * 3 + growthPulse * 2.2;
+  return clamp(Math.round(baseline + signalBoost + pulseBoost), 0, 100);
+}
+
+function buildSpatialProgress(game: GameState): SpatialProgressState {
+  const locale = game.locale ?? "fr";
+  const spaceProgramScore = computeSpaceProgramScore(game);
+  const tier = knowledgeTierForGame(game, spaceProgramScore);
+  const knownCountryIds = buildKnownCountryIds(game, tier);
+  const discoveryPercent = clamp(Math.round((knownCountryIds.length / Math.max(1, game.countries.length)) * 100), 8, 100);
+  const orbitUnlocked = tier === "orbital" || tier === "lunar" || spaceProgramScore >= 55 || hasSpaceSignal(game);
+  const moonUnlocked =
+    tier === "lunar" ||
+    spaceProgramScore >= 82 ||
+    (orbitUnlocked && /\b(moon|luna|lunar)\b/i.test(game.events.map((event) => `${event.title} ${event.description} ${event.mapChangeSummary ?? ""}`).join(" ")));
+  const resolvedTier: SpatialKnowledgeTier = moonUnlocked ? "lunar" : orbitUnlocked ? "orbital" : tier;
+
+  return {
+    knowledgeTier: resolvedTier,
+    knownCountryIds,
+    discoveryPercent,
+    minZoom: zoomCapForTier(resolvedTier),
+    spaceProgramScore,
+    orbitUnlocked,
+    moonUnlocked,
+    briefingLabel: spatialBriefingLabelForTier(resolvedTier, locale)
+  };
+}
+
+export function getSpatialProgress(game: GameState): SpatialProgressState {
+  return buildSpatialProgress(game);
+}
+
 export function computeCountryPowerScore(country: Pick<CountryState, "wealth" | "stability" | "tension" | "army" | "industry" | "fortification" | "unrest">): number {
   return clamp(
     Math.round(
@@ -723,33 +885,53 @@ export function computeCountryPowerScore(country: Pick<CountryState, "wealth" | 
   );
 }
 
-export function monthLabel(month: number): string {
-  const labels = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December"
-  ];
-  return labels[clamp(month, 1, 12) - 1] ?? "January";
+export function monthLabel(month: number, locale: "fr" | "en" = "en"): string {
+  const labels = locale === "fr"
+    ? [
+        "janvier",
+        "fevrier",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "aout",
+        "septembre",
+        "octobre",
+        "novembre",
+        "decembre"
+      ]
+    : [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ];
+  return labels[clamp(month, 1, 12) - 1] ?? (locale === "fr" ? "janvier" : "January");
 }
 
-export function formatDate(year: number, month: number, day: number): string {
-  return `${monthLabel(month)} ${day}${daySuffix(day)}, ${year}`;
+export function formatDate(year: number, month: number, day: number, locale: "fr" | "en" = "en"): string {
+  if (locale === "fr") {
+    return `${day} ${monthLabel(month, locale)} ${year}`;
+  }
+
+  return `${monthLabel(month, locale)} ${day}${daySuffix(day)}, ${year}`;
 }
 
 export function formatRangeLabel(
   start: { year: number; month: number; day: number },
-  end: { year: number; month: number; day: number }
+  end: { year: number; month: number; day: number },
+  locale: "fr" | "en" = "en"
 ): string {
-  return `${formatDate(start.year, start.month, start.day)} -> ${formatDate(end.year, end.month, end.day)}`;
+  return `${formatDate(start.year, start.month, start.day, locale)} -> ${formatDate(end.year, end.month, end.day, locale)}`;
 }
 
 export function pushEvent(state: GameState, event: GameEvent): void {
@@ -760,13 +942,14 @@ export function pushEvent(state: GameState, event: GameEvent): void {
 }
 
 export function createSnapshot(game: GameState, summary: string, eventIds: string[]): RoundSnapshot {
+  const locale = game.locale ?? "fr";
   return {
     id: `${game.id}-snapshot-${game.tick}`,
     tick: game.tick,
     year: game.year,
     month: game.month,
     day: game.day,
-    displayDate: formatDate(game.year, game.month, game.day),
+    displayDate: formatDate(game.year, game.month, game.day, locale),
     countries: cloneCountries(game.countries),
     mapArtifacts: game.mapArtifacts.map((artifact) => ({ ...artifact })),
     eventIds,
@@ -786,11 +969,12 @@ export function saveGame(game: GameState): void {
     game.countries.find((country) => country.id === game.playerCountryId) ??
     game.countries[0];
 
-  game.displayDate = formatDate(game.year, game.month, game.day);
+  game.displayDate = formatDate(game.year, game.month, game.day, game.locale ?? "fr");
   game.selectedCountryId = selectedCountry?.id ?? game.playerCountryId;
   game.selectedProvinceId = game.selectedProvinceId ?? null;
   game.selectedCountryName = selectedCountry?.name ?? game.playerCountryName;
   game.indicators = computeIndicators(game.countries);
+  game.spatialProgress = buildSpatialProgress(game);
   game.quickActions = QUICK_ACTIONS;
   game.availableJumpOptions = JUMP_OPTIONS;
   game.uiState = {
@@ -813,6 +997,7 @@ export function saveGame(game: GameState): void {
 
 export function createGame(input: CreateGameInput): GameState {
   const preset = getPresetById(input.presetId);
+  const locale = input.locale === "fr" ? "fr" : "en";
   const requestedCountryId = normalizeCountryKey(input.countryId);
   const playerCountry = fallbackCountry(requestedCountryId || preset.recommendedCountries[0] || "france");
   const diff = difficultyModifier(input.difficulty);
@@ -823,16 +1008,18 @@ export function createGame(input: CreateGameInput): GameState {
   }
 
   const id = `game-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const openingBriefing = openingBriefingForPreset(preset, playerCountry.name);
+  const openingBriefing = openingBriefingForPreset(preset, playerCountry.name, locale);
+  const french = locale === "fr";
   const state: GameState = {
     id,
     presetId: preset.id,
     preset,
+    locale,
     year: preset.startDate.year,
     month: preset.startDate.month,
     day: preset.startDate.day,
     tick: 0,
-    displayDate: preset.startDate.label,
+    displayDate: formatDate(preset.startDate.year, preset.startDate.month, preset.startDate.day, locale),
     playerCountryId: playerCountry.id,
     playerCountryName: playerCountry.name,
     difficulty: input.difficulty,
@@ -850,8 +1037,12 @@ export function createGame(input: CreateGameInput): GameState {
     indicators: computeIndicators(countries),
     quickActions: QUICK_ACTIONS,
     eventWindow: {
-      title: "Evenements entre dates",
-      rangeLabel: `${preset.startDate.label} -> ${preset.startDate.label}`,
+      title: french ? "Evenements entre dates" : "Events between dates",
+      rangeLabel: formatRangeLabel(
+        { year: preset.startDate.year, month: preset.startDate.month, day: preset.startDate.day },
+        { year: preset.startDate.year, month: preset.startDate.month, day: preset.startDate.day },
+        locale
+      ),
       activeEventId: null,
       eventIds: [],
       startedTick: 0,
@@ -861,6 +1052,16 @@ export function createGame(input: CreateGameInput): GameState {
     snapshots: [],
     tokenBalance: getLocalWalletBalance(initialTokenBalance(input.aiQuality)),
     availableJumpOptions: JUMP_OPTIONS,
+    spatialProgress: {
+      knowledgeTier: "limited",
+      knownCountryIds: [],
+      discoveryPercent: 0,
+      minZoom: 1.84,
+      spaceProgramScore: 0,
+      orbitUnlocked: false,
+      moonUnlocked: false,
+      briefingLabel: spatialBriefingLabelForTier("limited", locale)
+    },
     uiState: {
       activePanel: "events",
       selectedCountryId: playerCountry.id,
@@ -868,6 +1069,15 @@ export function createGame(input: CreateGameInput): GameState {
     }
   };
 
+  const presetLabel = french
+    ? (preset.id === "world-war-ii"
+      ? "Seconde Guerre mondiale"
+      : preset.id === "victorian-era"
+        ? "Ere victorienne"
+        : preset.id === "modern-day" || preset.id === "detailed-2025"
+          ? "Temps present"
+          : preset.title)
+    : preset.title;
   const systemEvent: GameEvent = {
     id: `${state.id}-evt-boot`,
     type: "system",
@@ -876,11 +1086,13 @@ export function createGame(input: CreateGameInput): GameState {
     month: state.month,
     day: state.day,
     dateLabel: state.displayDate,
-    title: "Scenario Loaded",
-    description: `${preset.title} initialized. You are now leading ${state.playerCountryName}.`,
+    title: french ? "Scenario charge" : "Scenario Loaded",
+    description: french
+      ? `${presetLabel} est charge. Vous prenez desormais le commandement de ${state.playerCountryName}.`
+      : `${preset.title} initialized. You are now leading ${state.playerCountryName}.`,
     locationLabel: state.playerCountryName,
-    factionLabel: preset.official ? "Official Preset" : "Community Preset",
-    mapChangeSummary: "Initial world state ready for inspection.",
+    factionLabel: french ? (preset.official ? "Preset officiel" : "Preset communautaire") : (preset.official ? "Official Preset" : "Community Preset"),
+    mapChangeSummary: french ? "Etat initial du monde pret a etre inspecte." : "Initial world state ready for inspection.",
     countryId: state.playerCountryId
   };
 
@@ -902,15 +1114,20 @@ export function createGame(input: CreateGameInput): GameState {
 
   pushEvent(state, systemEvent);
   pushEvent(state, briefingEvent);
-  state.snapshots.push(createSnapshot(state, "Opening world state loaded.", [briefingEvent.id, systemEvent.id]));
+  state.snapshots.push(createSnapshot(state, french ? "Etat initial du monde charge." : "Opening world state loaded.", [briefingEvent.id, systemEvent.id]));
   state.eventWindow = {
-    title: "Evenements entre dates",
-    rangeLabel: `${preset.startDate.label} -> ${preset.startDate.label}`,
+    title: french ? "Evenements entre dates" : "Events between dates",
+    rangeLabel: formatRangeLabel(
+      { year: preset.startDate.year, month: preset.startDate.month, day: preset.startDate.day },
+      { year: preset.startDate.year, month: preset.startDate.month, day: preset.startDate.day },
+      locale
+    ),
     activeEventId: briefingEvent.id,
     eventIds: [briefingEvent.id, systemEvent.id],
     startedTick: 0,
     endedTick: 0
   };
+  state.spatialProgress = buildSpatialProgress(state);
 
   saveGame(state);
   return state;
@@ -999,8 +1216,8 @@ export function buildEventWindowForTickRange(
     });
 
   return {
-    title: "Evenements entre dates",
-    rangeLabel: formatRangeLabel(start, end),
+    title: eventWindowTitle(game.locale ?? "fr"),
+    rangeLabel: formatRangeLabel(start, end, game.locale ?? "fr"),
     activeEventId: matchingEvents[0]?.id ?? null,
     eventIds: matchingEvents.map((event) => event.id),
     startedTick: start.tick,

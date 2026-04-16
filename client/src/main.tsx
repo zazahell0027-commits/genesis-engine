@@ -9,7 +9,6 @@ import "./styles/pax.css";
 import "./styles/game-ui-upgrade.css";
 import "./styles/game-ui-fidelity.css";
 import "./styles/ui-cleanup-ezra.css";
-import "./styles/game-ui-fidelity.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

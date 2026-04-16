@@ -34,7 +34,7 @@ export function LaunchPresetModal(props: {
   onError: (message: string | null) => void;
   onStarted: (game: GameState) => void;
 }): React.JSX.Element | null {
-  const { t } = useUiLocale();
+  const { locale, t } = useUiLocale();
   const [setupStep, setSetupStep] = useState<1 | 2>(1);
   const [setupOptions, setSetupOptions] = useState<GameSetupOptions | null>(null);
   const [countries, setCountries] = useState<CountryDescriptor[]>([]);
@@ -121,7 +121,8 @@ export function LaunchPresetModal(props: {
         presetId: props.preset.id,
         countryId,
         difficulty,
-        aiQuality
+        aiQuality,
+        locale
       });
       props.onStarted(game);
     } catch (error) {

@@ -17,6 +17,7 @@ import {
   computeIndicators,
   formatDate,
   normalizeCountryId,
+  getSpatialProgress,
   pushEvent,
   safeCountryName,
   saveGame
@@ -77,6 +78,15 @@ function focusCountryIdsFromEffects(effects: MapEffect[] | undefined): string[] 
   );
 }
 
+function localizedPresetLabel(game: GameState): string {
+  const french = (game.locale ?? "fr") === "fr";
+  if (!french) return game.preset.title;
+  if (game.presetId === "world-war-ii") return "Seconde Guerre mondiale";
+  if (game.presetId === "victorian-era") return "Ere victorienne";
+  if (game.presetId === "modern-day" || game.presetId === "detailed-2025") return "Temps present";
+  return game.preset.title;
+}
+
 function createEvent(
   game: GameState,
   type: GameEvent["type"],
@@ -106,7 +116,7 @@ function createEvent(
     year: game.year,
     month: game.month,
     day: game.day,
-    dateLabel: formatDate(game.year, game.month, game.day),
+    dateLabel: formatDate(game.year, game.month, game.day, game.locale ?? "fr"),
     title,
     description,
     countryId: options?.countryId,
@@ -643,6 +653,43 @@ function simulateNaturalDynamics(game: GameState): GameEvent | null {
   return null;
 }
 
+function emitSpatialMilestoneEvents(game: GameState): void {
+  const previousProgress = game.spatialProgress;
+  const nextProgress = getSpatialProgress(game);
+
+  if (!previousProgress.orbitUnlocked && nextProgress.orbitUnlocked) {
+    const orbitEvent = createEvent(
+      game,
+      "system",
+      "Orbital Reconnaissance Online",
+      "A first observation satellite and drone relay now feed the strategic map from orbit.",
+      {
+        locationLabel: "Low Orbit",
+        factionLabel: game.playerCountryName,
+        mapChangeSummary: "The orbital layer is now available and the world can be read from above."
+      }
+    );
+    pushEvent(game, orbitEvent);
+  }
+
+  if (!previousProgress.moonUnlocked && nextProgress.moonUnlocked) {
+    const moonEvent = createEvent(
+      game,
+      "system",
+      "Lunar Access Window Opened",
+      "Survey probes and orbital logistics have unlocked a first workable view of the Moon.",
+      {
+        locationLabel: "Lunar Orbit",
+        factionLabel: game.playerCountryName,
+        mapChangeSummary: "The lunar layer is now available for exploration and future expansion."
+      }
+    );
+    pushEvent(game, moonEvent);
+  }
+
+  game.spatialProgress = nextProgress;
+}
+
 function cadenceForStep(step: JumpStep): "week" | "month" {
   return step === "week" ? "week" : "month";
 }
@@ -673,6 +720,7 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
     ])
   );
 
+  const french = (game.locale ?? "fr") === "fr";
   const highlights: string[] = [];
   const eventIds: string[] = [];
   for (const order of queued) {
@@ -692,34 +740,41 @@ function runRound(game: GameState, cadence: "week" | "month"): GameEvent | null 
 
   game.actionPoints = game.maxActionPoints;
   game.indicators = computeIndicators(game.countries);
+  emitSpatialMilestoneEvents(game);
 
   const summaryText =
     highlights.length > 0
       ? highlights[0]
-      : "No direct orders resolved this round. The world drifted under simulation pressure.";
+      : french
+        ? "Aucun ordre direct n'a ete resolu ce tour. Le monde a glisse sous la pression de la simulation."
+        : "No direct orders resolved this round. The world drifted under simulation pressure.";
 
   game.lastRoundSummary = {
     tick: game.tick,
-    year: game.year,
-    month: game.month,
-    day: game.day,
-    displayDate: formatDate(game.year, game.month, game.day),
-    appliedOrders: queued.length,
-    highlights:
-      highlights.length > 0
-        ? highlights.slice(0, 8)
-        : ["No direct orders were applied this round. World evolution came from simulation dynamics."]
+      year: game.year,
+      month: game.month,
+      day: game.day,
+      displayDate: formatDate(game.year, game.month, game.day, game.locale ?? "fr"),
+      appliedOrders: queued.length,
+      highlights:
+        highlights.length > 0
+          ? highlights.slice(0, 8)
+          : [french
+            ? "Aucun ordre direct n'a ete applique ce tour. L'evolution du monde vient de la simulation."
+            : "No direct orders were applied this round. World evolution came from simulation dynamics."]
   };
 
   const roundEvent = createEvent(
     game,
     "system",
-    "Round Resolved",
-    `${queued.length} order(s) resolved. Global tension ${game.indicators.avgTension}, stability ${game.indicators.avgStability}.`,
+    french ? "Tour resolu" : "Round Resolved",
+    french
+      ? `${queued.length} ordre(s) resolu(s). Tension globale ${game.indicators.avgTension}, stabilite ${game.indicators.avgStability}.`
+      : `${queued.length} order(s) resolved. Global tension ${game.indicators.avgTension}, stability ${game.indicators.avgStability}.`,
     {
       locationLabel: game.playerCountryName,
-      factionLabel: game.preset.title,
-      mapChangeSummary: "The world map has been updated for the new round."
+      factionLabel: localizedPresetLabel(game),
+      mapChangeSummary: french ? "La carte du monde a ete mise a jour pour le nouveau tour." : "The world map has been updated for the new round."
     }
   );
 
@@ -857,6 +912,8 @@ function queueOrderWithKind(game: GameState, text: string, overrides?: QueuedOrd
     throw new Error("Order text cannot be empty.");
   }
 
+  const french = (game.locale ?? "fr") === "fr";
+
   if (game.actionPoints <= 0 || game.queuedOrders.length >= game.maxActionPoints) {
     throw new Error("No action points available. Jump forward to start a new round.");
   }
@@ -883,13 +940,15 @@ function queueOrderWithKind(game: GameState, text: string, overrides?: QueuedOrd
     createEvent(
       game,
       "order",
-      "Order Queued",
-      `${resolvedKind.toUpperCase()} queued for ${safeCountryName(game, resolvedTargetCountryId)}.`,
+      french ? "Ordre en file" : "Order Queued",
+      french
+        ? `${resolvedKind.toUpperCase()} mis en file pour ${safeCountryName(game, resolvedTargetCountryId)}.`
+        : `${resolvedKind.toUpperCase()} queued for ${safeCountryName(game, resolvedTargetCountryId)}.`,
       {
         countryId: resolvedTargetCountryId,
         locationLabel: safeCountryName(game, resolvedTargetCountryId),
         factionLabel: game.playerCountryName,
-        mapChangeSummary: "The action is queued and will resolve on the next jump."
+        mapChangeSummary: french ? "L'action est en file et se resolvera au prochain saut." : "The action is queued and will resolve on the next jump."
       }
     )
   );
@@ -922,6 +981,7 @@ export function removeOrder(game: GameState, orderId: string): GameState {
   }
 
   const [removed] = game.queuedOrders.splice(index, 1);
+  const french = (game.locale ?? "fr") === "fr";
   if (removed.status === "queued") {
     game.actionPoints = clamp(game.actionPoints + 1, 0, game.maxActionPoints);
   }
@@ -932,13 +992,15 @@ export function removeOrder(game: GameState, orderId: string): GameState {
     createEvent(
       game,
       "order",
-      "Order Removed",
-      `${removed.kind.toUpperCase()} removed from queue for ${safeCountryName(game, removed.targetCountryId)}.`,
+      french ? "Ordre retire" : "Order Removed",
+      french
+        ? `${removed.kind.toUpperCase()} retire de la file pour ${safeCountryName(game, removed.targetCountryId)}.`
+        : `${removed.kind.toUpperCase()} removed from queue for ${safeCountryName(game, removed.targetCountryId)}.`,
       {
         countryId: removed.targetCountryId,
         locationLabel: safeCountryName(game, removed.targetCountryId),
         factionLabel: game.playerCountryName,
-        mapChangeSummary: "The queued action has been cancelled before simulation."
+        mapChangeSummary: french ? "L'action en file a ete annulee avant la simulation." : "The queued action has been cancelled before simulation."
       }
     )
   );
@@ -951,6 +1013,7 @@ export function jumpForward(game: GameState, step: JumpStep): GameState {
   const loops = loopsForStep(step);
   const cadence = cadenceForStep(step);
   const start = { tick: game.tick, year: game.year, month: game.month, day: game.day };
+  const french = (game.locale ?? "fr") === "fr";
 
   for (let i = 0; i < loops; i += 1) {
     runRound(game, cadence);
@@ -959,12 +1022,14 @@ export function jumpForward(game: GameState, step: JumpStep): GameState {
   const jumpEvent = createEvent(
     game,
     "system",
-    "Jump Forward",
-    `Jump (${step.replace("_", " ")}) completed from ${formatDate(start.year, start.month, start.day)} to ${formatDate(game.year, game.month, game.day)}.`,
+    french ? "Saut en avant" : "Jump Forward",
+    french
+      ? `Saut (${step.replace("_", " ")}) termine du ${formatDate(start.year, start.month, start.day, game.locale ?? "fr")} au ${formatDate(game.year, game.month, game.day, game.locale ?? "fr")}.`
+      : `Jump (${step.replace("_", " ")}) completed from ${formatDate(start.year, start.month, start.day, game.locale ?? "fr")} to ${formatDate(game.year, game.month, game.day, game.locale ?? "fr")}.`,
     {
       locationLabel: "Global",
-      factionLabel: game.preset.title,
-      mapChangeSummary: "The simulation advanced and the event window has been refreshed."
+      factionLabel: localizedPresetLabel(game),
+      mapChangeSummary: french ? "La simulation a avance et la fenetre d'evenements a ete rafraichie." : "The simulation advanced and the event window has been refreshed."
     }
   );
   pushEvent(game, jumpEvent);
@@ -986,6 +1051,7 @@ function isMajor(event: GameEvent | null): boolean {
 export function jumpToMajorEvent(game: GameState): GameState {
   const maxRounds = 18;
   const start = { tick: game.tick, year: game.year, month: game.month, day: game.day };
+  const french = (game.locale ?? "fr") === "fr";
   let found: GameEvent | null = null;
 
   for (let i = 0; i < maxRounds; i += 1) {
@@ -999,14 +1065,18 @@ export function jumpToMajorEvent(game: GameState): GameState {
   const event = createEvent(
     game,
     found ? found.type : "system",
-    "To Next Major Event",
+    french ? "Vers le prochain evenement majeur" : "To Next Major Event",
     found
-      ? `Reached a major event after ${game.tick - start.tick} rounds: ${found.title}.`
-      : `No major event was detected after ${maxRounds} rounds.`,
+      ? (french
+        ? `Un evenement majeur a ete atteint apres ${game.tick - start.tick} tours : ${found.title}.`
+        : `Reached a major event after ${game.tick - start.tick} rounds: ${found.title}.`)
+      : (french
+        ? `Aucun evenement majeur n'a ete detecte apres ${maxRounds} tours.`
+        : `No major event was detected after ${maxRounds} rounds.`),
     {
       locationLabel: found?.locationLabel ?? "Global",
-      factionLabel: found?.factionLabel ?? game.preset.title,
-      mapChangeSummary: found?.mapChangeSummary ?? "The world kept evolving without a flagship event."
+      factionLabel: found?.factionLabel ?? localizedPresetLabel(game),
+      mapChangeSummary: found?.mapChangeSummary ?? (french ? "Le monde a continue d'evoluer sans evenement phare." : "The world kept evolving without a flagship event.")
     }
   );
   pushEvent(game, event);
@@ -1048,7 +1118,7 @@ export function sendDiplomacyMessage(
     year: game.year,
     month: game.month,
     day: game.day,
-    dateLabel: formatDate(game.year, game.month, game.day),
+    dateLabel: formatDate(game.year, game.month, game.day, game.locale ?? "fr"),
     targetCountryId: target.id,
     targetCountryName: target.name,
     message: trimmed,

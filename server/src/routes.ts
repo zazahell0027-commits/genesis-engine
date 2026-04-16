@@ -44,6 +44,7 @@ type LoadedGame = NonNullable<ReturnType<typeof getGame>>;
 type LoadedCountry = LoadedGame["countries"][number];
 type AdvisorFrame = {
   game: LoadedGame;
+  locale: "fr" | "en";
   countries: LoadedCountry[];
   indicators: LoadedGame["indicators"];
   tick: number;
@@ -54,6 +55,63 @@ type AdvisorFrame = {
   snapshotId?: string;
   eventIds: string[];
 };
+
+type ParsedContextPrompt = {
+  surfaceKind: "country" | "ocean" | "void" | "orbital" | "lunar" | "unknown";
+  placeLabel: string;
+  coordinates: string;
+};
+
+function actionTagForKind(kind: TurnOrderKind, french: boolean): string {
+  if (kind === "diplomacy") return french ? "Canal diplomatique" : "Diplomatic channel";
+  if (kind === "defend") return french ? "Defense locale" : "Local defense";
+  if (kind === "stabilize") return french ? "Stabilisation" : "Stabilization";
+  if (kind === "invest") return french ? "Projection" : "Projection";
+  if (kind === "pressure") return french ? "Pression" : "Pressure";
+  return french ? "Offensive" : "Offensive";
+}
+
+function contextActionTag(
+  surfaceKind: ParsedContextPrompt["surfaceKind"],
+  kind: TurnOrderKind,
+  french: boolean
+): string {
+  if (surfaceKind === "country") {
+    if (kind === "diplomacy") return french ? "Canal local" : "Local channel";
+    if (kind === "defend") return french ? "Defense locale" : "Local defense";
+    if (kind === "stabilize") return french ? "Stabilisation locale" : "Local stabilization";
+    if (kind === "invest") return french ? "Action territoriale" : "Territorial move";
+    if (kind === "pressure") return french ? "Pression locale" : "Local pressure";
+    return french ? "Offensive locale" : "Local offensive";
+  }
+
+  if (surfaceKind === "ocean") {
+    if (kind === "defend") return french ? "Veille navale" : "Naval watch";
+    if (kind === "invest") return french ? "Route maritime" : "Sea route";
+    if (kind === "stabilize") return french ? "Reconnaissance maritime" : "Maritime reconnaissance";
+    if (kind === "diplomacy") return french ? "Canal maritime" : "Maritime channel";
+    return french ? "Projection navale" : "Naval projection";
+  }
+
+  if (surfaceKind === "void" || surfaceKind === "unknown") {
+    if (kind === "stabilize") return french ? "Renseignement" : "Intelligence";
+    if (kind === "invest") return french ? "Extension de carte" : "Map expansion";
+    if (kind === "defend") return french ? "Surveillance" : "Surveillance";
+    if (kind === "diplomacy") return french ? "Observation" : "Observation";
+    return french ? "Exploration" : "Exploration";
+  }
+
+  if (surfaceKind === "orbital" || surfaceKind === "lunar") {
+    if (kind === "invest") return french ? "Point d'appui" : "Anchor point";
+    if (kind === "stabilize") return french ? "Veille spatiale" : "Space watch";
+    if (kind === "diplomacy") return french ? "Preparation orbitale" : "Orbital prep";
+    if (kind === "defend") return french ? "Bouclier orbital" : "Orbital shield";
+    return french ? "Projection spatiale" : "Space projection";
+  }
+
+  return actionTagForKind(kind, french);
+}
+
 const STRATEGIC_COUNTRY_IDS = new Set([
   "united states",
   "china",
@@ -177,23 +235,285 @@ function buildAdvisorInsights(frame: AdvisorFrame): string[] {
   const player = countries.find((country) => country.id === game.playerCountryId) ?? countries[0];
   const topThreat = pickStrategicThreat(frame);
   const bestPartner = pickStrategicPartner(frame);
+  const french = frame.locale === "fr";
 
   const insights: string[] = [
-    `World pressure: stability ${indicators.avgStability}, wealth ${indicators.avgWealth}, tension ${indicators.avgTension} (${indicators.conflictLevel}).`,
-    `${player.name}: stability ${player.stability}, unrest ${player.unrest}, army ${player.army}, industry ${player.industry}.`
+    french
+      ? `Pression mondiale: stabilite ${indicators.avgStability}, richesse ${indicators.avgWealth}, tension ${indicators.avgTension} (${indicators.conflictLevel}).`
+      : `World pressure: stability ${indicators.avgStability}, wealth ${indicators.avgWealth}, tension ${indicators.avgTension} (${indicators.conflictLevel}).`,
+    french
+      ? `${player.name}: stabilite ${player.stability}, agitation ${player.unrest}, armee ${player.army}, industrie ${player.industry}.`
+      : `${player.name}: stability ${player.stability}, unrest ${player.unrest}, army ${player.army}, industry ${player.industry}.`
   ];
 
   if (topThreat) {
-    insights.push(`Primary threat: ${topThreat.name} (relation ${topThreat.relationToPlayer}, tension ${topThreat.tension}).`);
+    insights.push(
+      french
+        ? `Menace principale: ${topThreat.name} (relation ${topThreat.relationToPlayer}, tension ${topThreat.tension}).`
+        : `Primary threat: ${topThreat.name} (relation ${topThreat.relationToPlayer}, tension ${topThreat.tension}).`
+    );
   }
   if (bestPartner && bestPartner.relationToPlayer > 0) {
-    insights.push(`Best diplomatic channel: ${bestPartner.name} (relation ${bestPartner.relationToPlayer}).`);
+    insights.push(
+      french
+        ? `Meilleur canal diplomatique: ${bestPartner.name} (relation ${bestPartner.relationToPlayer}).`
+        : `Best diplomatic channel: ${bestPartner.name} (relation ${bestPartner.relationToPlayer}).`
+    );
   }
 
   return insights.slice(0, 4);
 }
 
-function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
+function parseContextPrompt(question: string): ParsedContextPrompt | null {
+  const surfaceMatch = question.match(/Surface:\s*([^\.]+)\./i);
+  const placeMatch = question.match(/L'utilisateur a clique droit sur\s+(.+?)\./i) ?? question.match(/The user right-clicked on\s+(.+?)\./i);
+  const coordinatesMatch = question.match(/Coordonnees:\s*([^\.\n]+)/i) ?? question.match(/Coordinates:\s*([^\.\n]+)/i);
+  if (!surfaceMatch && !placeMatch && !coordinatesMatch) return null;
+
+  const surfaceValue = (surfaceMatch?.[1] ?? "").trim().toLowerCase();
+  const surfaceKind: ParsedContextPrompt["surfaceKind"] =
+    surfaceValue.includes("terre") || surfaceValue.includes("land") ? "country" :
+    surfaceValue.includes("ocean") || surfaceValue.includes("maritime") ? "ocean" :
+    surfaceValue.includes("orbite") || surfaceValue.includes("orbital") ? "orbital" :
+    surfaceValue.includes("lune") || surfaceValue.includes("lunar") ? "lunar" :
+    surfaceValue.includes("vide") || surfaceValue.includes("empty") ? "void" :
+    "unknown";
+
+  return {
+    surfaceKind,
+    placeLabel: (placeMatch?.[1] ?? "").trim(),
+    coordinates: (coordinatesMatch?.[1] ?? "").trim()
+  };
+}
+
+function buildContextSuggestions(frame: AdvisorFrame, question: string): AdvisorSuggestion[] | null {
+  const context = parseContextPrompt(question);
+  if (!context) return null;
+  const parsedContext = context;
+
+  const french = frame.locale === "fr";
+  const player = frame.countries.find((country) => country.id === frame.game.playerCountryId) ?? frame.countries[0];
+  const baseLabel = parsedContext.placeLabel || (french ? frame.game.playerCountryName : frame.game.playerCountryName);
+
+  function suggestion(
+    label: string,
+    rationale: string,
+    impact: string,
+    kind: TurnOrderKind,
+    orderText: string,
+    urgency: AdvisorSuggestion["urgency"] = "medium"
+  ): AdvisorSuggestion {
+    return {
+      id: `context:${kind}:${frame.game.playerCountryId}:${label}`,
+      label,
+      actionTag: contextActionTag(parsedContext.surfaceKind, kind, french),
+      rationale,
+      impact,
+      kind,
+      urgency,
+      orderText,
+      targetCountryId: parsedContext.surfaceKind === "country" ? frame.game.selectedCountryId : frame.game.playerCountryId,
+      targetCountryName: baseLabel
+    };
+  }
+
+  if (parsedContext.surfaceKind === "country") {
+    return [
+      suggestion(
+        french ? `Analyser ${baseLabel}` : `Analyze ${baseLabel}`,
+        french
+          ? "Lire la position locale, la pression et les angles d'action."
+          : "Read the local position, pressure, and possible angles of action.",
+        french
+          ? "Donne une base claire avant tout engagement."
+          : "Gives a clear base before any commitment.",
+        "pressure",
+        french
+          ? `Analysez la situation locale autour de ${baseLabel} et identifiez le point faible principal.`
+          : `Analyze the local situation around ${baseLabel} and identify the main weak point.`,
+        "high"
+      ),
+      suggestion(
+        french ? `Ouvrir des canaux avec ${baseLabel}` : `Open channels with ${baseLabel}`,
+        french
+          ? "Proposer un échange ou une détente peut ouvrir le jeu sans surcoût immédiat."
+          : "Offering an exchange or de-escalation can open the game without immediate cost.",
+        french
+          ? "Baisse de tension et meilleure lecture diplomatique."
+          : "Lower tension and better diplomatic reading.",
+        "diplomacy",
+        french
+          ? `Proposez un canal diplomatique ciblé avec ${baseLabel}.`
+          : `Propose a targeted diplomatic channel with ${baseLabel}.`,
+        "medium"
+      ),
+      suggestion(
+        french ? `Préparer une action locale sur ${baseLabel}` : `Prepare a local move on ${baseLabel}`,
+        french
+          ? "Investissement, pression ou stabilisation selon le contexte local."
+          : "Investment, pressure, or stabilization depending on the local context.",
+        french
+          ? "Action concrète liée à l'endroit exact."
+          : "Concrete action tied to the exact spot.",
+        "invest",
+        french
+          ? `Préparez une action locale cohérente sur ${baseLabel} en tenant compte des frontières voisines.`
+          : `Prepare a local action on ${baseLabel} that fits the surrounding borders.`,
+        "medium"
+      )
+    ];
+  }
+
+  if (parsedContext.surfaceKind === "void" || parsedContext.surfaceKind === "unknown") {
+    return [
+      suggestion(
+        french ? "Lire le vide" : "Read the empty zone",
+        french
+          ? "Utiliser les coordonnees pour comprendre ce que la carte ne montre pas encore."
+          : "Use the coordinates to understand what the map does not yet reveal.",
+        french
+          ? "Preparer la prochaine couche de lecture."
+          : "Prepares the next reading layer.",
+        "stabilize",
+        french
+          ? `Analysez la zone vide autour de ${baseLabel}${parsedContext.coordinates ? ` (${parsedContext.coordinates})` : ""}.`
+          : `Analyze the empty area around ${baseLabel}${parsedContext.coordinates ? ` (${parsedContext.coordinates})` : ""}.`,
+        "low"
+      ),
+      suggestion(
+        french ? "Prolonger la lecture" : "Extend the reading",
+        french
+          ? "Un point sans acteur peut encore devenir utile par exploration ou projection."
+          : "A point without an actor can still become useful through exploration or projection.",
+        french
+          ? "Ouvre une piste de reconnaissance."
+          : "Opens a reconnaissance path.",
+        "invest",
+        french
+          ? "Etendez la lecture locale vers la zone la plus proche de votre frontiere active."
+          : "Extend the local reading toward the nearest active frontier.",
+        "medium"
+      ),
+      suggestion(
+        french ? "Orienter la surveillance" : "Orient surveillance",
+        french
+          ? "Le vide cartographique sert souvent de couloir pour des deplacements ou des surprises."
+          : "Map voids often become corridors for movement or surprise.",
+        french
+          ? "Renforce le renseignement sans engager de front."
+          : "Strengthens intelligence without committing to a front.",
+        "defend",
+        french
+          ? "Placez une surveillance sur ce point pour reveler toute mutation locale."
+          : "Place surveillance on this point to reveal local change.",
+        "medium"
+      )
+    ];
+  }
+
+  if (parsedContext.surfaceKind === "ocean") {
+    return [
+      suggestion(
+        french ? "Surveiller la zone maritime" : "Monitor the sea zone",
+        french
+          ? "Lire la route, les risques et les couloirs de passage."
+          : "Read the route, risks, and transit corridors.",
+        french
+          ? "Vision navale et renseignement renforcés."
+          : "Improved naval awareness and intelligence.",
+        "defend",
+        french
+          ? "Installez une surveillance navale sur cette zone maritime."
+          : "Install naval surveillance over this sea zone.",
+        "medium"
+      ),
+      suggestion(
+        french ? "Tracer une route" : "Plot a route",
+        french
+          ? "Une route commerciale ou logistique peut transformer l'océan en levier."
+          : "A commercial or logistical route can turn the ocean into leverage.",
+        french
+          ? "Prépare la circulation et la projection."
+          : "Prepares movement and projection.",
+        "invest",
+        french
+          ? "Tracez une route maritime utile autour de ce point."
+          : "Plot a useful maritime route around this point.",
+        "low"
+      ),
+      suggestion(
+        french ? "Déployer reconnaissance" : "Deploy reconnaissance",
+        french
+          ? "Chercher des opportunités ou des menaces invisibles à l'échelle terrestre."
+          : "Search for opportunities or threats invisible at land scale.",
+        french
+          ? "Renseignement et exploration stratégique."
+          : "Strategic reconnaissance and exploration.",
+        "stabilize",
+        french
+          ? "Déployez une reconnaissance sur cette zone pour révéler le terrain caché."
+          : "Deploy reconnaissance over this area to reveal hidden terrain.",
+        "medium"
+      )
+    ];
+  }
+
+  if (parsedContext.surfaceKind === "orbital" || parsedContext.surfaceKind === "lunar") {
+    return [
+      suggestion(
+        french ? "Identifier un point d'appui" : "Identify an anchor point",
+        french
+          ? "Choisir une position utile pour l'orbite ou la surface lunaire."
+          : "Pick a useful position for orbit or lunar surface operations.",
+        french
+          ? "Base de projection spatiale."
+          : "Space projection base.",
+        "invest",
+        french
+          ? "Choisissez un point d'appui pour la couche spatiale."
+          : "Choose an anchor point for the space layer.",
+        "high"
+      ),
+      suggestion(
+        french ? "Lancer une veille spatiale" : "Launch space watch",
+        french
+          ? "Observer la zone pour repérer fenêtres et risques."
+          : "Observe the zone to identify windows and risks.",
+        french
+          ? "Meilleure lecture des opportunités orbitales."
+          : "Better reading of orbital opportunities.",
+        "stabilize",
+        french
+          ? "Lancez une veille spatiale sur cette zone."
+          : "Launch space watch over this area.",
+        "medium"
+      ),
+      suggestion(
+        french ? "Préparer la suite" : "Prepare the next step",
+        french
+          ? "Transformer cette lecture en objectif de progression."
+          : "Turn this reading into a progression objective.",
+        french
+          ? "Aide à passer de la Terre à l'orbite ou à la Lune."
+          : "Helps move from Earth to orbit or to the Moon.",
+        "diplomacy",
+        french
+          ? "Préparez la prochaine étape spatiale autour de ce point."
+          : "Prepare the next space step around this point.",
+        "medium"
+      )
+    ];
+  }
+
+  return null;
+}
+
+function buildAdvisorSuggestions(frame: AdvisorFrame, question?: string): AdvisorSuggestion[] {
+  if (question) {
+    const contextual = buildContextSuggestions(frame, question);
+    if (contextual && contextual.length > 0) return contextual.slice(0, 3);
+  }
+
   const { game, countries } = frame;
   const player = countries.find((country) => country.id === game.playerCountryId) ?? countries[0];
   const rivals = countries.filter((country) => country.id !== game.playerCountryId);
@@ -203,10 +523,12 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
     .filter((country) => country.power >= 34)
     .sort((a, b) => a.stability - b.stability)[0];
   const playerCountryId = game.playerCountryId;
+  const french = frame.locale === "fr";
 
   const suggestions: AdvisorSuggestion[] = [];
   function pushSuggestion(input: {
     label: string;
+    actionTag: string;
     rationale: string;
     impact: string;
     kind: TurnOrderKind;
@@ -224,12 +546,19 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
 
   if (topThreat) {
     pushSuggestion({
-      label: `Harden frontier vs ${topThreat.name}`,
-      rationale: `${topThreat.name} is currently your strongest pressure source.`,
-      impact: "Defensive posture up, short-term stability risk contained.",
+      label: french ? `Renforcer la frontiere face a ${topThreat.name}` : `Harden frontier vs ${topThreat.name}`,
+      actionTag: actionTagForKind("defend", french),
+      rationale: french
+        ? `${topThreat.name} est actuellement votre principale source de pression.`
+        : `${topThreat.name} is currently your strongest pressure source.`,
+      impact: french
+        ? "Posture defensive renforcee, risque de stabilite immediate contenu."
+        : "Defensive posture up, short-term stability risk contained.",
       kind: "defend",
       urgency: topThreat.relationToPlayer <= -35 || topThreat.tension >= 70 ? "high" : "medium",
-      orderText: `Fortify frontier positions facing ${topThreat.name}, rotate reserves, and prioritize defensive readiness over expansion.`,
+      orderText: french
+        ? `Fortifiez les positions face a ${topThreat.name}, faites tourner les reserves, et priorisez la defense plutot que l'expansion.`
+        : `Fortify frontier positions facing ${topThreat.name}, rotate reserves, and prioritize defensive readiness over expansion.`,
       targetCountryId: topThreat.id,
       targetCountryName: topThreat.name
     });
@@ -237,12 +566,19 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
 
   if (player.unrest >= 4 || player.stability <= 55) {
     pushSuggestion({
-      label: "Stabilize internal pressure",
-      rationale: `Domestic pressure is elevated (${player.unrest} unrest, ${player.stability} stability).`,
-      impact: "Stability up, tension down, safer next jumps.",
+      label: french ? "Stabiliser la pression interne" : "Stabilize internal pressure",
+      actionTag: actionTagForKind("stabilize", french),
+      rationale: french
+        ? `La pression interne est elevee (${player.unrest} agitation, ${player.stability} stabilite).`
+        : `Domestic pressure is elevated (${player.unrest} unrest, ${player.stability} stability).`,
+      impact: french
+        ? "Stabilite en hausse, tension en baisse, prochains sauts plus surs."
+        : "Stability up, tension down, safer next jumps.",
       kind: "stabilize",
       urgency: player.unrest >= 6 || player.stability <= 46 ? "high" : "medium",
-      orderText: "Launch a domestic stabilization package with relief, policing, and political messaging to reduce unrest.",
+      orderText: french
+        ? "Lancez un paquet de stabilisation interne avec aide, maintien de l'ordre et communication politique pour reduire l'agitation."
+        : "Launch a domestic stabilization package with relief, policing, and political messaging to reduce unrest.",
       targetCountryId: game.playerCountryId,
       targetCountryName: game.playerCountryName
     });
@@ -250,12 +586,19 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
 
   if (player.industry <= 6 || player.wealth <= 57) {
     pushSuggestion({
-      label: "Boost industry and logistics",
-      rationale: "Economic depth is below your expansion threshold.",
-      impact: "Industry and wealth growth for medium-term leverage.",
+      label: french ? "Renforcer l'industrie et la logistique" : "Boost industry and logistics",
+      actionTag: actionTagForKind("invest", french),
+      rationale: french
+        ? "La profondeur economique reste sous votre seuil d'expansion."
+        : "Economic depth is below your expansion threshold.",
+      impact: french
+        ? "Croissance de l'industrie et de la richesse pour renforcer le levier moyen terme."
+        : "Industry and wealth growth for medium-term leverage.",
       kind: "invest",
       urgency: "medium",
-      orderText: "Accelerate industrial and logistics investment focused on rail, ports, and critical production.",
+      orderText: french
+        ? "Accélérez l'investissement industriel et logistique, avec un focus sur le rail, les ports et la production critique."
+        : "Accelerate industrial and logistics investment focused on rail, ports, and critical production.",
       targetCountryId: game.playerCountryId,
       targetCountryName: game.playerCountryName
     });
@@ -263,12 +606,19 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
 
   if (bestPartner && bestPartner.relationToPlayer >= 8) {
     pushSuggestion({
-      label: `Open talks with ${bestPartner.name}`,
-      rationale: "This is your best current diplomatic opening.",
-      impact: "Potential relation gain and lower regional tension.",
+      label: french ? `Ouvrir des discussions avec ${bestPartner.name}` : `Open talks with ${bestPartner.name}`,
+      actionTag: actionTagForKind("diplomacy", french),
+      rationale: french
+        ? "C'est votre meilleure ouverture diplomatique actuelle."
+        : "This is your best current diplomatic opening.",
+      impact: french
+        ? "Gain relationnel potentiel et baisse de tension regionale."
+        : "Potential relation gain and lower regional tension.",
       kind: "diplomacy",
       urgency: "medium",
-      orderText: `Propose a phased security and trade understanding with ${bestPartner.name}, with verification and non-aggression clauses.`,
+      orderText: french
+        ? `Proposez a ${bestPartner.name} un accord progressif de securite et d'echanges, avec verification et clauses de non-agression.`
+        : `Propose a phased security and trade understanding with ${bestPartner.name}, with verification and non-aggression clauses.`,
       targetCountryId: bestPartner.id,
       targetCountryName: bestPartner.name
     });
@@ -276,23 +626,37 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
 
   if (topThreat && (topThreat.relationToPlayer <= -58 || topThreat.tension >= 78) && player.power >= topThreat.power - 3) {
     pushSuggestion({
-      label: `Prepare pressure on ${topThreat.name}`,
-      rationale: "Escalation conditions are met and your balance of power is viable.",
-      impact: "Higher pressure and deterrence at the cost of tension.",
+      label: french ? `Preparer une pression sur ${topThreat.name}` : `Prepare pressure on ${topThreat.name}`,
+      actionTag: actionTagForKind("attack", french),
+      rationale: french
+        ? "Les conditions d'escalade sont reunies et votre rapport de force le permet."
+        : "Escalation conditions are met and your balance of power is viable.",
+      impact: french
+        ? "Pression et dissuasion plus fortes, au prix d'une tension accrue."
+        : "Higher pressure and deterrence at the cost of tension.",
       kind: "attack",
       urgency: "medium",
-      orderText: `Prepare a coordinated pressure campaign against ${topThreat.name} with military readiness and controlled escalation.`,
+      orderText: french
+        ? `Preparez une campagne de pression coordonnee contre ${topThreat.name} avec readiness militaire et escalation controlee.`
+        : `Prepare a coordinated pressure campaign against ${topThreat.name} with military readiness and controlled escalation.`,
       targetCountryId: topThreat.id,
       targetCountryName: topThreat.name
     });
   } else if (weakestState && weakestState.stability <= 42) {
     pushSuggestion({
-      label: `Exploit instability around ${weakestState.name}`,
-      rationale: `${weakestState.name} is the weakest nearby system this round.`,
-      impact: "Regional leverage increase with manageable diplomatic fallout.",
+      label: french ? `Exploiter l'instabilite autour de ${weakestState.name}` : `Exploit instability around ${weakestState.name}`,
+      actionTag: actionTagForKind("pressure", french),
+      rationale: french
+        ? `${weakestState.name} est le systeme voisin le plus fragile de ce tour.`
+        : `${weakestState.name} is the weakest nearby system this round.`,
+      impact: french
+        ? "Hausse de l'influence regionale avec un cout diplomatique maitrise."
+        : "Regional leverage increase with manageable diplomatic fallout.",
       kind: "pressure",
       urgency: "low",
-      orderText: `Apply calibrated political and economic pressure around ${weakestState.name} while keeping deniability.`,
+      orderText: french
+        ? `Appliquez une pression politique et economique calibree autour de ${weakestState.name} tout en conservant un degre de deniabilite.`
+        : `Apply calibrated political and economic pressure around ${weakestState.name} while keeping deniability.`,
       targetCountryId: weakestState.id,
       targetCountryName: weakestState.name
     });
@@ -300,12 +664,19 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
 
   if (suggestions.length === 0) {
     pushSuggestion({
-      label: "Consolidate home front",
-      rationale: "No urgent external trigger was detected this round.",
-      impact: "Safer baseline before the next jump.",
+      label: french ? "Consolider l'arriere" : "Consolidate home front",
+      actionTag: actionTagForKind("stabilize", french),
+      rationale: french
+        ? "Aucun declencheur externe urgent n'a ete detecte sur ce tour."
+        : "No urgent external trigger was detected this round.",
+      impact: french
+        ? "Base plus sure avant le prochain saut."
+        : "Safer baseline before the next jump.",
       kind: "stabilize",
       urgency: "low",
-      orderText: "Consolidate domestic stability, improve resilience, and avoid unnecessary escalation.",
+      orderText: french
+        ? "Consolidez la stabilite interne, renforcez la resilience et evitez toute escalation inutile."
+        : "Consolidate domestic stability, improve resilience, and avoid unnecessary escalation.",
       targetCountryId: game.playerCountryId,
       targetCountryName: game.playerCountryName
     });
@@ -314,10 +685,11 @@ function buildAdvisorSuggestions(frame: AdvisorFrame): AdvisorSuggestion[] {
   return suggestions.slice(0, 5);
 }
 
-function buildAdvisorFrame(game: LoadedGame, snapshotId?: string): AdvisorFrame {
+function buildAdvisorFrame(game: LoadedGame, locale: "fr" | "en", snapshotId?: string): AdvisorFrame {
   if (!snapshotId) {
     return {
       game,
+      locale,
       countries: game.countries,
       indicators: game.indicators,
       tick: game.tick,
@@ -333,6 +705,7 @@ function buildAdvisorFrame(game: LoadedGame, snapshotId?: string): AdvisorFrame 
   if (!snapshot) {
     return {
       game,
+      locale,
       countries: game.countries,
       indicators: game.indicators,
       tick: game.tick,
@@ -346,6 +719,7 @@ function buildAdvisorFrame(game: LoadedGame, snapshotId?: string): AdvisorFrame 
 
   return {
     game,
+    locale,
     countries: snapshot.countries,
     indicators: computeIndicators(snapshot.countries),
     tick: snapshot.tick,
@@ -656,10 +1030,10 @@ function sanitizeRoundNarrative(gameId: string, narrative: Awaited<ReturnType<AI
   };
 }
 
-async function enrichJumpNarrative(ai: AIProvider, gameId: string, fromDateLabel: string): Promise<void> {
+async function enrichJumpNarrative(ai: AIProvider, gameId: string, fromDateLabel: string, locale: "fr" | "en"): Promise<void> {
   const game = getGame(gameId);
   if (!game || !game.lastRoundSummary) return;
-  const frame = buildAdvisorFrame(game);
+  const frame = buildAdvisorFrame(game, locale);
 
   const eventWindowOrders = game.eventWindow.eventIds
     .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
@@ -674,6 +1048,7 @@ async function enrichJumpNarrative(ai: AIProvider, gameId: string, fromDateLabel
   const rawNarrative = await ai.generateRoundNarrative({
     presetTitle: game.preset.title,
     playerCountryName: game.playerCountryName,
+    locale,
     fromDateLabel,
     toDateLabel: game.displayDate,
     appliedOrders: game.lastRoundSummary.appliedOrders,
@@ -737,13 +1112,14 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const countryId = ensureString(payload.countryId);
     const difficulty = ensureString(payload.difficulty) as CreateGameInput["difficulty"];
     const aiQuality = ensureString(payload.aiQuality) as CreateGameInput["aiQuality"];
+    const locale = ensureString(payload.locale) === "fr" ? "fr" : "en";
 
     if (!presetId || !countryId || !difficulty || !aiQuality) {
       res.status(400).json({ error: "presetId, countryId, difficulty and aiQuality are required" });
       return;
     }
 
-    const game = createGame({ presetId, countryId, difficulty, aiQuality });
+    const game = createGame({ presetId, countryId, difficulty, aiQuality, locale });
     res.status(201).json(game);
   });
   app.post("/api/games", (req: Request, res: Response) => {
@@ -752,13 +1128,14 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const countryId = ensureString(payload.countryId);
     const difficulty = ensureString(payload.difficulty) as CreateGameInput["difficulty"];
     const aiQuality = ensureString(payload.aiQuality) as CreateGameInput["aiQuality"];
+    const locale = ensureString(payload.locale) === "fr" ? "fr" : "en";
 
     if (!presetId || !countryId || !difficulty || !aiQuality) {
       res.status(400).json({ error: "presetId, countryId, difficulty and aiQuality are required" });
       return;
     }
 
-    const game = createGame({ presetId, countryId, difficulty, aiQuality });
+    const game = createGame({ presetId, countryId, difficulty, aiQuality, locale });
     res.status(201).json(game);
   });
 
@@ -861,6 +1238,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const payload = (req.body ?? {}) as Partial<QueueOrderInput>;
     const gameId = ensureString(payload.gameId);
     const text = ensureString(payload.text);
+    const locale = ensureString(req.body?.locale) === "en" ? "en" : "fr";
 
     if (!gameId || !text) {
       res.status(400).json({ error: "gameId and text are required" });
@@ -877,6 +1255,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       const interpretation = await ai.interpretOrder({
         presetTitle: game.preset.title,
         playerCountryName: game.playerCountryName,
+        locale,
         dateLabel: game.displayDate,
         orderText: text,
         countries: game.countries.map((country) => ({ id: country.id, name: country.name }))
@@ -951,6 +1330,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const payload = (req.body ?? {}) as Partial<JumpInput>;
     const gameId = ensureString(payload.gameId);
     const step = ensureString(payload.step);
+    const locale = ensureString(req.body?.locale) === "en" ? "en" : "fr";
 
     if (!gameId || !step) {
       res.status(400).json({ error: "gameId and step are required" });
@@ -970,13 +1350,14 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
 
     const fromDateLabel = game.displayDate;
     const updated = jumpForward(game, step as JumpInput["step"]);
-    await enrichJumpNarrative(ai, updated.id, fromDateLabel);
+    await enrichJumpNarrative(ai, updated.id, fromDateLabel, locale);
     saveGame(updated);
     res.json(updated);
   });
 
   app.post("/game/jump/major-event", async (req: Request, res: Response) => {
     const gameId = ensureString(req.body?.gameId);
+    const locale = ensureString(req.body?.locale) === "en" ? "en" : "fr";
     if (!gameId) {
       res.status(400).json({ error: "gameId is required" });
       return;
@@ -990,7 +1371,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
 
     const fromDateLabel = game.displayDate;
     const updated = jumpToMajorEvent(game);
-    await enrichJumpNarrative(ai, updated.id, fromDateLabel);
+    await enrichJumpNarrative(ai, updated.id, fromDateLabel, locale);
     saveGame(updated);
     res.json(updated);
   });
@@ -1000,6 +1381,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const gameId = ensureString(payload.gameId);
     const targetCountryId = ensureString(payload.targetCountryId);
     const message = ensureString(payload.message);
+    const locale = ensureString(req.body?.locale) === "en" ? "en" : "fr";
 
     if (!gameId || !targetCountryId || !message) {
       res.status(400).json({ error: "gameId, targetCountryId and message are required" });
@@ -1020,6 +1402,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
           presetTitle: game.preset.title,
           playerCountryName: game.playerCountryName,
           targetCountryName: target.name,
+          locale,
           dateLabel: game.displayDate,
           message,
           relationToPlayer: target.relationToPlayer,
@@ -1042,6 +1425,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
     const gameId = ensureString(req.body?.gameId);
     const snapshotIdInput = ensureString(req.body?.snapshotId);
     const question = ensureString(req.body?.prompt);
+    const locale = ensureString(req.body?.locale) === "en" ? "en" : "fr";
     if (!gameId) {
       res.status(400).json({ error: "gameId is required" });
       return;
@@ -1053,7 +1437,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       return;
     }
 
-    const frame = buildAdvisorFrame(game, snapshotIdInput || undefined);
+    const frame = buildAdvisorFrame(game, locale, snapshotIdInput || undefined);
     const contextEvents = summarizeRecentEvents(game, frame.eventIds);
     const latestContextEvent = (frame.eventIds
       .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
@@ -1075,6 +1459,7 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       kind: game.preset.category,
       complexity: game.aiQuality.toLowerCase(),
       playerCountryName: game.playerCountryName,
+      locale,
       actionPoints: game.actionPoints,
       maxActionPoints: game.maxActionPoints,
       avgRichness: frame.indicators.avgWealth,
@@ -1098,15 +1483,15 @@ export function registerRoutes(app: import("express").Express, ai: AIProvider): 
       .replace(/^["']+|["']+$/g, "")
       .replace(/\s+/g, " ");
     const insights = buildAdvisorInsights(frame);
-    const suggestions = buildAdvisorSuggestions(frame);
+    const suggestions = buildAdvisorSuggestions(frame, question || undefined);
     const response: AdvisorResponse = {
       provider: ai.providerName,
-      narrative: `${monthLabel(frame.month)} ${frame.day}, ${frame.year} | ${cleanedNarrative}`,
+      narrative: `${monthLabel(frame.month, locale)} ${frame.day}, ${frame.year} | ${cleanedNarrative}`,
       tick: frame.tick,
       year: frame.year,
       month: frame.month,
       day: frame.day,
-      dateLabel: formatDate(frame.year, frame.month, frame.day),
+      dateLabel: formatDate(frame.year, frame.month, frame.day, locale),
       snapshotId: frame.snapshotId,
       question: question || undefined,
       insights,

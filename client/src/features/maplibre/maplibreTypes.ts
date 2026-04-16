@@ -1,19 +1,39 @@
-import type { CountryState, MapArtifact, MapEffect, PresetSummary } from "@genesis/shared";
+import type { CountryState, MapArtifact, MapEffect, PresetSummary, SpatialProgressState } from "@genesis/shared";
 import type { Geometry, Position } from "geojson";
+
+export type MapViewMode = "terre" | "globe" | "orbite" | "lune";
 
 export type MapLibreWorldMapProps = {
   countries: CountryState[];
   preset: PresetSummary;
+  playerCountryId: string;
+  playerCountryName: string;
+  uiLocale?: "fr" | "en";
+  briefingMomentTitle: string;
+  briefingMomentText: string;
+  briefingSummary: string;
   selectedCountryId: string | null;
   selectedProvinceId?: string | null;
   mapEffects?: MapEffect[];
   mapArtifacts?: MapArtifact[];
+  spatialProgress: SpatialProgressState;
   highlightedCountryIds?: string[];
   focusCountryIds?: string[];
   focusProvinceIds?: string[];
   focusToken?: number;
   onSelectCountry: (countryId: string) => void;
   onSelectProvince?: (provinceId: string, countryId: string) => void;
+  onRequestContextMenu?: (payload: {
+    countryId: string | null;
+    countryName: string | null;
+    surfaceKind: "country" | "ocean" | "void" | "orbital" | "lunar";
+    surfaceLabel: string;
+    longitude: number;
+    latitude: number;
+    viewMode: MapViewMode;
+    clientX: number;
+    clientY: number;
+  }) => void;
 };
 
 export type CountryGeometry = {
@@ -28,6 +48,7 @@ export type CountryFeatureProperties = {
   countryId: string;
   name: string;
   fillColor: string;
+  discovered: boolean;
   selected: boolean;
   highlighted: boolean;
   focused: boolean;

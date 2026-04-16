@@ -25,6 +25,16 @@ import {
   formatMoney
 } from "../components/Icons";
 import { OverlayHeading } from "../features/game/ui/OverlayHeading";
+import {
+  formatGameDate,
+  translateCountryDescriptor,
+  translateCountryName,
+  translateNarrativeBody,
+  translateNarrativeTitle,
+  translatePresetTitle,
+  translateSpatialBriefingLabel,
+  useUiLocale
+} from "../i18n";
 
 type OverlayPanel = "events" | "actions" | "chats" | "search" | "menu" | "none";
 type RightPanel = "advisor" | "timeline" | "none";
@@ -34,6 +44,18 @@ type MapFocus = {
   countryIds: string[];
   provinceIds: string[];
   token: number;
+};
+
+type MapContextAction = {
+  x: number;
+  y: number;
+  countryId: string | null;
+  countryName: string | null;
+  surfaceKind: "country" | "ocean" | "void" | "orbital" | "lunar";
+  surfaceLabel: string;
+  longitude: number;
+  latitude: number;
+  viewMode: "terre" | "globe" | "orbite" | "lune";
 };
 
 function normalize(value: string): string {
@@ -151,13 +173,18 @@ export function GameRoutePage(props: {
   const [advisorPrompt, setAdvisorPrompt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [mapFocus, setMapFocus] = useState<MapFocus>({ countryIds: [], provinceIds: [], token: 0 });
+  const [mapContextAction, setMapContextAction] = useState<MapContextAction | null>(null);
+  const [mapContextAdvisorResponse, setMapContextAdvisorResponse] = useState<AdvisorResponse | null>(null);
+  const [mapContextAdvisorLoading, setMapContextAdvisorLoading] = useState(false);
   const compactHudQuery = "(max-width: 1500px), (max-height: 820px)";
   const [isCompactHud, setIsCompactHud] = useState<boolean>(() => (
     typeof window !== "undefined" ? window.matchMedia(compactHudQuery).matches : false
   ));
   const busy = busyAction !== null;
+  const { locale } = useUiLocale();
 
   function toggleLeftPanel(next: Exclude<OverlayPanel, "none">): void {
+    setMapContextAction(null);
     setPanel((current) => {
       const resolved = current === next ? "none" : next;
       if (resolved !== "none" && isCompactHud) {
@@ -168,6 +195,7 @@ export function GameRoutePage(props: {
   }
 
   function toggleRightPanel(next: Exclude<RightPanel, "none">): void {
+    setMapContextAction(null);
     setRightPanel((current) => {
       const resolved = current === next ? "none" : next;
       if (resolved !== "none" && isCompactHud) {
@@ -185,9 +213,11 @@ export function GameRoutePage(props: {
     let cancelled = false;
     async function loadGameState(): Promise<void> {
       setLoading(true);
-      setAdvisorResponse(null);
-      setAdvisorHistory([]);
-      onError(null);
+        setAdvisorResponse(null);
+        setAdvisorHistory([]);
+        setMapContextAdvisorResponse(null);
+        setMapContextAdvisorLoading(false);
+        onError(null);
       try {
         const loaded = await getGame(currentGameId);
         if (cancelled) return;
@@ -244,6 +274,8 @@ export function GameRoutePage(props: {
       if (event.key === "Escape") {
         setPanel("none");
         setRightPanel("none");
+        setMapContextAction(null);
+        setMapContextAdvisorResponse(null);
         return;
       }
 
@@ -273,6 +305,21 @@ export function GameRoutePage(props: {
     };
   }, [isCompactHud]);
 
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent): void {
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest(".map-context-menu")) return;
+      setMapContextAction(null);
+      setMapContextAdvisorResponse(null);
+    }
+
+    if (!mapContextAction) return;
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [mapContextAction]);
+
   async function applyGameUpdate(updated: GameState, nextPanel?: OverlayPanel): Promise<void> {
     setGame(updated);
     setSelectedCountryId((current) => (
@@ -300,10 +347,20 @@ export function GameRoutePage(props: {
   const selectedCountry = activeCountries.find((country) => country.id === selectedCountryId)
     ?? activeCountries.find((country) => country.id === game.playerCountryId)
     ?? activeCountries[0];
+  const playerCountry = activeCountries.find((country) => country.id === game.playerCountryId)
+    ?? activeCountries[0];
+  const playerEconomyRank = playerCountry
+    ? [...activeCountries].sort((a, b) => b.wealth - a.wealth).findIndex((country) => country.id === playerCountry.id) + 1
+    : 0;
+  const playerPowerRank = playerCountry
+    ? [...activeCountries].sort((a, b) => b.power - a.power).findIndex((country) => country.id === playerCountry.id) + 1
+    : 0;
   const windowEvents = game.eventWindow.eventIds
     .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
     .filter((event): event is NonNullable<typeof event> => Boolean(event));
   const activeEvent = windowEvents.find((event) => event.id === activeEventId) ?? windowEvents[0] ?? null;
+  const localizedActiveEventTitle = activeEvent ? translateNarrativeTitle(activeEvent.title, locale) : null;
+  const localizedActiveEventDate = activeEvent ? formatGameDate(activeEvent.year, activeEvent.month, activeEvent.day, locale) : "";
   const snapshotEvents = snapshot
     ? snapshot.eventIds
       .map((eventId) => game.events.find((event) => event.id === eventId) ?? null)
@@ -338,6 +395,26 @@ export function GameRoutePage(props: {
   const mapFocusCountryIds = mapFocus.countryIds;
   const mapFocusProvinceIds = mapFocus.provinceIds;
   const mapFocusToken = mapFocus.token;
+  const briefingMomentTitle = activeEvent?.title ?? (locale === "fr" ? "Lecture en cours" : "Current reading");
+  const briefingMomentText = activeEvent?.description
+    ?? game.lastRoundSummary?.highlights[0]
+    ?? (locale === "fr"
+      ? "Aucun evenement majeur dans la fenetre actuelle."
+      : "No major event is active in the current window.");
+  const localizedBriefingMomentTitle = translateNarrativeTitle(briefingMomentTitle, locale);
+  const localizedPlayerCountryName = translateCountryName(game.playerCountryName, locale);
+  const localizedBriefingMomentText = translateNarrativeBody(briefingMomentTitle, briefingMomentText, locale, {
+    playerCountryName: localizedPlayerCountryName,
+    presetTitle: translatePresetTitle(game.preset.id, locale)
+  });
+  const briefingDate = snapshot
+    ? formatGameDate(snapshot.year, snapshot.month, snapshot.day, locale)
+    : formatGameDate(game.year, game.month, game.day, locale);
+  const localizedPlayerDescriptor = translateCountryDescriptor(playerCountry.descriptor, locale);
+  const spatialBriefingLabel = translateSpatialBriefingLabel(game.spatialProgress.knowledgeTier, locale);
+  const briefingSummary = locale === "fr"
+    ? `Le jeu reste centré sur ${localizedPlayerCountryName}. ${game.spatialProgress.knownCountryIds.length} pays reveles, monde lisible a ${game.spatialProgress.discoveryPercent} %. ${spatialBriefingLabel}. ${game.spatialProgress.orbitUnlocked ? "Orbite deverrouillee." : "Orbite verrouillee."} ${game.spatialProgress.moonUnlocked ? "Lune deverrouillee." : "Lune verrouillee."}`
+    : `The game remains centered on ${game.playerCountryName}. ${game.spatialProgress.knownCountryIds.length} countries revealed, world readable at ${game.spatialProgress.discoveryPercent}%. ${spatialBriefingLabel}. ${game.spatialProgress.orbitUnlocked ? "Orbit unlocked." : "Orbit locked."} ${game.spatialProgress.moonUnlocked ? "Moon unlocked." : "Moon locked."}`;
   const advisorActionSuggestions = (advisorResponse?.suggestions ?? [])
     .filter((suggestion) => suggestion.kind !== "diplomacy")
     .slice(0, 3);
@@ -353,7 +430,7 @@ export function GameRoutePage(props: {
     setBusyAction("order");
     onError(null);
     try {
-      const updated = await queueOrder(currentGame.id, orderText.trim());
+      const updated = await queueOrder(currentGame.id, orderText.trim(), { locale });
       setOrderText("");
       await applyGameUpdate(updated, "actions");
     } catch (error) {
@@ -400,7 +477,7 @@ export function GameRoutePage(props: {
     setBusyAction("jump");
     onError(null);
     try {
-      const updated = await jumpForward(currentGame.id, jumpStep);
+      const updated = await jumpForward(currentGame.id, jumpStep, { locale });
       await applyGameUpdate(updated, "events");
       setRightPanel(isCompactHud ? "none" : "advisor");
     } catch (error) {
@@ -416,7 +493,7 @@ export function GameRoutePage(props: {
     setBusyAction("major-event");
     onError(null);
     try {
-      const updated = await jumpToMajorEvent(currentGame.id);
+      const updated = await jumpToMajorEvent(currentGame.id, { locale });
       await applyGameUpdate(updated, "events");
       setRightPanel(isCompactHud ? "none" : "timeline");
     } catch (error) {
@@ -433,7 +510,7 @@ export function GameRoutePage(props: {
     setBusyAction("diplomacy");
     onError(null);
     try {
-      await sendDiplomacy(currentGame.id, diplomacyTargetId, diplomacyText.trim());
+      await sendDiplomacy(currentGame.id, diplomacyTargetId, diplomacyText.trim(), { locale });
       const updated = await getGame(currentGame.id);
       setDiplomacyText("");
       await applyGameUpdate(updated, "chats");
@@ -452,7 +529,8 @@ export function GameRoutePage(props: {
     try {
       const response = await getAdvisor(currentGame.id, {
         snapshotId: viewedSnapshotId ?? undefined,
-        prompt: advisorPrompt.trim() || undefined
+        prompt: advisorPrompt.trim() || undefined,
+        locale
       });
       const updated = await getGame(currentGame.id);
       setAdvisorResponse(response);
@@ -468,6 +546,89 @@ export function GameRoutePage(props: {
     } finally {
       setBusyAction(null);
     }
+  }
+
+  function getContextPlaceLabel(context: MapContextAction): string {
+    if (context.countryId) {
+      const matchedCountry = game?.countries.find((country) => country.id === context.countryId) ?? null;
+      if (matchedCountry) {
+        return translateCountryName(matchedCountry.name, locale);
+      }
+    }
+
+    return context.surfaceLabel || (locale === "fr" ? "cette zone" : "this location");
+  }
+
+  function buildContextPrompt(context: MapContextAction): string {
+    const placeLabel = getContextPlaceLabel(context);
+    const coordinates = `${context.longitude.toFixed(2)}, ${context.latitude.toFixed(2)}`;
+    const surfaceLabel = locale === "fr"
+      ? context.surfaceKind === "country"
+        ? "terre"
+        : context.surfaceKind === "ocean"
+          ? "ocean"
+          : context.surfaceKind === "orbital"
+            ? "orbite"
+            : context.surfaceKind === "lunar"
+              ? "lune"
+              : "vide"
+      : context.surfaceKind;
+
+    if (locale === "fr") {
+      return [
+        "Tu es un conseiller strategique de jeu de gestion.",
+        `Nation jouee: ${localizedPlayerCountryName}.`,
+        `L'utilisateur a clique droit sur ${placeLabel}.`,
+        `Surface: ${surfaceLabel}. Vue: ${context.viewMode}. Coordonnees: ${coordinates}.`,
+        "A partir du compte rendu, propose exactement 3 actions distinctes. Pour chacune, donne un tag court, un titre court, une explication breve et une position claire par rapport a la carte.",
+        "Priorite: actions coherentes avec le lieu, la carte, le pays du joueur et la logique geopolitique. Ne reponds pas comme un robot."
+      ].join(" ");
+    }
+
+    return [
+      "You are a strategic management-game advisor.",
+      `Player nation: ${localizedPlayerCountryName}.`,
+      `The user right-clicked on ${placeLabel}.`,
+      `Surface: ${context.surfaceKind}. View: ${context.viewMode}. Coordinates: ${coordinates}.`,
+      "From the report, propose exactly 3 distinct actions. For each one, provide a short tag, a short title, a brief explanation, and a clear position relative to the map.",
+      "Priority: actions that fit the place, the map, and geopolitical logic. Do not sound robotic."
+    ].join(" ");
+  }
+
+  async function requestContextBrief(context: MapContextAction): Promise<void> {
+    const currentGame = game;
+    if (!currentGame) return;
+
+    const prompt = buildContextPrompt(context);
+    setAdvisorPrompt(prompt);
+    setMapContextAdvisorLoading(true);
+    setMapContextAdvisorResponse(null);
+    setBusyAction("advisor");
+    onError(null);
+    try {
+      const response = await getAdvisor(currentGame.id, {
+        snapshotId: viewedSnapshotId ?? undefined,
+        prompt,
+        locale
+      });
+      const updated = await getGame(currentGame.id);
+      setMapContextAdvisorResponse(response);
+      setAdvisorHistory((current) => [
+        response,
+        ...current.filter((entry) => `${entry.tick}:${entry.snapshotId ?? "live"}` !== `${response.tick}:${response.snapshotId ?? "live"}`)
+      ].slice(0, 8));
+      await applyGameUpdate(updated);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Impossible de charger le conseiller");
+    } finally {
+      setMapContextAdvisorLoading(false);
+      setBusyAction(null);
+    }
+  }
+
+  async function handleContextBrief(): Promise<void> {
+    if (!mapContextAction) return;
+    await requestContextBrief(mapContextAction);
   }
 
   async function handleAdvisorSuggestion(suggestion: AdvisorSuggestion): Promise<void> {
@@ -487,7 +648,7 @@ export function GameRoutePage(props: {
     try {
       const updated = suggestion.targetCountryId && isQuickActionKind(suggestion.kind)
         ? await queueQuickAction(currentGame.id, suggestion.targetCountryId, suggestion.kind)
-        : await queueOrder(currentGame.id, suggestion.orderText);
+        : await queueOrder(currentGame.id, suggestion.orderText, { locale });
       await applyGameUpdate(updated, "actions");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Impossible d'appliquer la suggestion");
@@ -603,7 +764,7 @@ export function GameRoutePage(props: {
             <ArrowLeftIcon />
           </button>
           <div className="jump-capsule-copy">
-            <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
+            <strong>{briefingDate}</strong>
             <span>{snapshot ? `Lecture - Tick ${snapshot.tick}` : `En direct - Tick ${game.tick}`}</span>
           </div>
           <button
@@ -614,24 +775,30 @@ export function GameRoutePage(props: {
           >
             <ArrowRightIcon />
           </button>
+          <button
+            type="button"
+            className="capsule-arrow timeline-toggle-inline"
+            aria-label="Chronologie"
+            onClick={() => toggleRightPanel("timeline")}
+          >
+            <CalendarIcon />
+          </button>
         </div>
-
-        <button
-          type="button"
-          className="timeline-toggle-button"
-          aria-label="Chronologie"
-          onClick={() => toggleRightPanel("timeline")}
-        >
-          <CalendarIcon />
-        </button>
 
         <MapLibreWorldMap
           countries={activeCountries}
           preset={game.preset}
+          playerCountryId={game.playerCountryId}
+          playerCountryName={localizedPlayerCountryName}
+          uiLocale={locale}
+          briefingMomentTitle={localizedBriefingMomentTitle}
+          briefingMomentText={localizedBriefingMomentText}
+          briefingSummary={briefingSummary}
           selectedCountryId={selectedCountry?.id ?? null}
           selectedProvinceId={selectedProvinceId}
           mapEffects={mapEffects}
           mapArtifacts={activeMapArtifacts}
+          spatialProgress={game.spatialProgress}
           highlightedCountryIds={highlightedCountryIds}
           focusCountryIds={mapFocusCountryIds}
           focusProvinceIds={mapFocusProvinceIds}
@@ -652,6 +819,28 @@ export function GameRoutePage(props: {
               setDiplomacyTargetId(countryId);
             }
           }}
+          onRequestContextMenu={(payload) => {
+            if (payload.countryId) {
+              setSelectedCountryId(payload.countryId);
+              setSelectedProvinceId(null);
+              if (payload.countryId !== game.playerCountryId) {
+                setDiplomacyTargetId(payload.countryId);
+              }
+            }
+            const nextContextAction = {
+              x: payload.clientX,
+              y: payload.clientY,
+              countryId: payload.countryId,
+              countryName: payload.countryName,
+              surfaceKind: payload.surfaceKind,
+              surfaceLabel: payload.surfaceLabel,
+              longitude: payload.longitude,
+              latitude: payload.latitude,
+              viewMode: payload.viewMode
+            } satisfies MapContextAction;
+            setMapContextAction(nextContextAction);
+            void requestContextBrief(nextContextAction);
+          }}
         />
 
         <div className="floating-dock">
@@ -670,10 +859,69 @@ export function GameRoutePage(props: {
           <AvatarIcon />
         </button>
 
-        <div className="game-status-pill">
-          <span>{selectedCountry?.name ?? game.playerCountryName}</span>
-          <strong>{viewedSnapshotId ? "Snapshot historique" : game.preset.title}</strong>
-        </div>
+        {mapContextAction && (
+          <div
+            className="map-context-menu"
+            style={{ left: `${mapContextAction.x + 12}px`, top: `${mapContextAction.y + 12}px` }}
+            role="menu"
+            aria-label="Actions contextuelles"
+        >
+          <span className="map-context-menu-eyebrow">Lecture locale</span>
+            <strong>{getContextPlaceLabel(mapContextAction)}</strong>
+            <p>
+              {mapContextAction.surfaceLabel}
+              {" · "}
+              {mapContextAction.viewMode === "terre"
+                ? "Vue terrestre"
+                : mapContextAction.viewMode === "globe"
+                  ? "Vue globe"
+                  : mapContextAction.viewMode === "orbite"
+                    ? "Vue orbitale"
+                    : "Vue lunaire"}
+            </p>
+            <p className="map-context-menu-coords">
+              {`${mapContextAction.longitude.toFixed(2)}, ${mapContextAction.latitude.toFixed(2)}`}
+            </p>
+            {mapContextAdvisorLoading && (
+              <p className="map-context-menu-loading">
+                {locale === "fr" ? "Analyse de l'endroit..." : "Reading the location..."}
+              </p>
+            )}
+            {mapContextAdvisorResponse?.narrative && (
+              <p className="map-context-menu-narrative">{mapContextAdvisorResponse.narrative}</p>
+            )}
+            <div className="map-context-menu-actions">
+            {mapContextAdvisorResponse?.suggestions?.slice(0, 3).map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                className={`map-context-action-card kind-${suggestion.kind}`}
+                onClick={() => void handleAdvisorSuggestion(suggestion)}
+                disabled={busy}
+              >
+                <span className="map-context-action-tag">{suggestion.actionTag}</span>
+                <strong>{suggestion.label}</strong>
+                <span>{suggestion.targetCountryName ?? getContextPlaceLabel(mapContextAction)}</span>
+              </button>
+            ))}
+              {!mapContextAdvisorLoading && (!mapContextAdvisorResponse?.suggestions?.length) && (
+                <button type="button" className="primary-button" onClick={() => void handleContextBrief()} disabled={busy}>
+                  {locale === "fr" ? "Analyser le point" : "Analyze point"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setMapContextAction(null);
+                  setMapContextAdvisorResponse(null);
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        )}
 
         {busyCopy && (
           <div className="game-busy-banner" role="status" aria-live="polite">
@@ -696,7 +944,7 @@ export function GameRoutePage(props: {
                 disabled={busy}
               >
                 <strong>{action.label}</strong>
-                <span>{selectedCountry.name}</span>
+                <span>{translateCountryName(selectedCountry.name, locale)}</span>
               </button>
             ))}
           </div>
@@ -716,7 +964,7 @@ export function GameRoutePage(props: {
                   {activeEvent.locationLabel && <span>{activeEvent.locationLabel}</span>}
                   {activeEvent.factionLabel && <span>{activeEvent.factionLabel}</span>}
                 </div>
-                <h3>{activeEvent.title}</h3>
+                <h3>{localizedActiveEventTitle ?? activeEvent.title}</h3>
                 <p className="event-description">{activeEvent.description}</p>
                 {activeEventEffects.length > 0 ? (
                   <div className="event-impact-list">
@@ -735,7 +983,7 @@ export function GameRoutePage(props: {
                   <span>Voir les changements de carte</span>
                 </button>
                 <div className="event-footer">
-                  <span><CalendarIcon /> {activeEvent.dateLabel}</span>
+                  <span><CalendarIcon /> {localizedActiveEventDate}</span>
                   <span>{activeEvent.mapChangeSummary ?? "Aucun resume cartographique n'est disponible."}</span>
                 </div>
               </>
@@ -752,8 +1000,8 @@ export function GameRoutePage(props: {
                     className={`event-card${activeEventId === event.id ? " is-active" : ""}`}
                     onClick={() => setActiveEventId(event.id)}
                   >
-                    <strong>{event.dateLabel}</strong>
-                    <span>{event.title}</span>
+                    <strong>{formatGameDate(event.year, event.month, event.day, locale)}</strong>
+                    <span>{translateNarrativeTitle(event.title, locale)}</span>
                   </button>
                 ))}
               </div>
@@ -777,7 +1025,7 @@ export function GameRoutePage(props: {
                   onClick={() => handleTimelineSelect(entry)}
                 >
                   <span>{entry.displayDate}</span>
-                  <strong>{entry.title}</strong>
+                  <strong>{translateNarrativeTitle(entry.title, locale)}</strong>
                   <p>{entry.subtitle}</p>
                 </button>
               ))}
@@ -803,31 +1051,13 @@ export function GameRoutePage(props: {
 
             {selectedCountry && (
               <div className="selected-country-card">
-                <strong>{selectedCountry.name}</strong>
-                <span>{selectedCountry.descriptor}</span>
-                <span>{`Puissance ${selectedCountry.power} | Stabilite ${selectedCountry.stability} | Tension ${selectedCountry.tension}`}</span>
-                <span>{`Armee ${selectedCountry.army} | Industrie ${selectedCountry.industry} | Fortification ${selectedCountry.fortification} | Unrest ${selectedCountry.unrest}`}</span>
+                <strong>{translateCountryName(playerCountry.name, locale)}</strong>
+                <span>{localizedPlayerDescriptor}</span>
+                <span>{`Position eco #${playerEconomyRank}/${activeCountries.length} | Influence #${playerPowerRank}/${activeCountries.length}`}</span>
+                <span>{`Stabilité ${playerCountry.stability} | Tension ${playerCountry.tension} | Industrie ${playerCountry.industry}`}</span>
+                <span>{`Nation jouée • la cible change, pas le camp.`}</span>
               </div>
             )}
-
-            <label className="field-block">
-              <span>Pays actif</span>
-              <select
-                value={selectedCountryId ?? ""}
-                onChange={(event) => {
-                  const nextCountryId = event.target.value || null;
-                  setSelectedCountryId(nextCountryId);
-                  setSelectedProvinceId(null);
-                  if (nextCountryId && nextCountryId !== game.playerCountryId) {
-                    setDiplomacyTargetId(nextCountryId);
-                  }
-                }}
-              >
-                {activeCountries.map((country) => (
-                  <option key={country.id} value={country.id}>{country.name}</option>
-                ))}
-              </select>
-            </label>
 
             {advisorActionSuggestions.length > 0 && (
               <div className="advisor-shortcut-row">
@@ -937,9 +1167,9 @@ export function GameRoutePage(props: {
                 {game.countries
                   .filter((country) => country.id !== game.playerCountryId)
                   .map((country) => (
-                    <option key={country.id} value={country.id}>{country.name}</option>
-                  ))}
-              </select>
+                <option key={country.id} value={country.id}>{translateCountryName(country.name, locale)}</option>
+              ))}
+            </select>
             </label>
 
             {advisorDiplomacySuggestions.length > 0 && (
@@ -1017,8 +1247,8 @@ export function GameRoutePage(props: {
             />
 
             <div className="advisor-summary">
-              <strong>{snapshot?.displayDate ?? game.displayDate}</strong>
-              <span>{`${game.preset.title} | ${game.playerCountryName}${viewedSnapshotId ? " | Historique" : ""}`}</span>
+              <strong>{briefingDate}</strong>
+              <span>{`${game.preset.title} | ${localizedPlayerCountryName}${viewedSnapshotId ? " | Historique" : ""}`}</span>
             </div>
 
             <label className="field-block">
@@ -1043,7 +1273,7 @@ export function GameRoutePage(props: {
 
             {advisorResponse ? (
               <article className="advisor-card">
-                <strong>{advisorResponse.dateLabel}</strong>
+                <strong>{formatGameDate(advisorResponse.year, advisorResponse.month, advisorResponse.day, locale)}</strong>
                 <p>{advisorResponse.question ? `Question: ${advisorResponse.question} ` : ""}{advisorResponse.narrative}</p>
               </article>
             ) : (
@@ -1063,6 +1293,7 @@ export function GameRoutePage(props: {
                 {advisorResponse.suggestions.map((suggestion) => (
                   <article key={suggestion.id} className={`advisor-suggestion-card urgency-${suggestion.urgency}`}>
                     <div className="advisor-suggestion-header">
+                      <span className="advisor-suggestion-tag">{suggestion.actionTag}</span>
                       <strong>{suggestion.label}</strong>
                       <span>{suggestion.urgency.toUpperCase()}</span>
                     </div>
@@ -1085,7 +1316,7 @@ export function GameRoutePage(props: {
 
             {busyAction === "advisor" && (
               <article className="advisor-card is-pending">
-                <strong>{game.displayDate}</strong>
+                <strong>{briefingDate}</strong>
                 <p>Generation d'un nouveau brief en cours...</p>
               </article>
             )}
@@ -1146,8 +1377,8 @@ export function GameRoutePage(props: {
                     setPanel("actions");
                   }}
                 >
-                  <strong>{country.name}</strong>
-                  <span>{country.descriptor}</span>
+                  <strong>{translateCountryName(country.name, locale)}</strong>
+                  <span>{translateCountryDescriptor(country.descriptor, locale)}</span>
                 </button>
               ))}
             </div>

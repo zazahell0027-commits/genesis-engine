@@ -3,6 +3,7 @@ import type { DiplomacyExchange, GameEventType, TurnOrderKind } from "@genesis/s
 export type WorldNarrativeInput = {
   worldName: string;
   scenarioId: string;
+  locale?: "fr" | "en";
   year: number;
   month: number;
   day: number;
@@ -35,6 +36,7 @@ export type WorldNarrativeInput = {
 export type OrderInterpretationInput = {
   presetTitle: string;
   playerCountryName: string;
+  locale?: "fr" | "en";
   dateLabel: string;
   orderText: string;
   countries: Array<{ id: string; name: string }>;
@@ -50,6 +52,7 @@ export type DiplomacyReplyInput = {
   presetTitle: string;
   playerCountryName: string;
   targetCountryName: string;
+  locale?: "fr" | "en";
   dateLabel: string;
   message: string;
   relationToPlayer: number;
@@ -70,6 +73,7 @@ export type DiplomacyReply = {
 export type RoundNarrativeInput = {
   presetTitle: string;
   playerCountryName: string;
+  locale?: "fr" | "en";
   fromDateLabel: string;
   toDateLabel: string;
   appliedOrders: number;

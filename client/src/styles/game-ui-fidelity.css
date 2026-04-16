@@ -120,8 +120,7 @@
 .app-shell.is-game-route .floating-corner-button,
 .app-shell.is-game-route .floating-profile-button,
 .app-shell.is-game-route .dock-button,
-.app-shell.is-game-route .capsule-arrow,
-.app-shell.is-game-route .timeline-toggle-button {
+.app-shell.is-game-route .capsule-arrow {
   width: var(--hud-button-size);
   height: var(--hud-button-size);
   border-radius: 0.9rem;
@@ -135,8 +134,6 @@
 .app-shell.is-game-route .world-map-tools,
 .app-shell.is-game-route .world-map-legend,
 .app-shell.is-game-route .jump-capsule,
-.app-shell.is-game-route .timeline-toggle-button,
-.app-shell.is-game-route .game-status-pill,
 .app-shell.is-game-route .game-busy-banner,
 .app-shell.is-game-route .context-quick-strip,
 .app-shell.is-game-route .floating-dock,
@@ -465,17 +462,18 @@
 
 .app-shell.is-game-route .advisor-shortcut-row {
   display: grid;
-  gap: 0.5rem;
-  margin: 0.2rem 0 0.7rem;
+  gap: 0.42rem;
+  margin: 0.18rem 0 0.62rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .app-shell.is-game-route .advisor-shortcut-chip {
   border: 1px solid rgba(132, 155, 226, 0.28);
-  border-radius: 0.92rem;
+  border-radius: 0.8rem;
   background: rgba(21, 34, 63, 0.82);
   color: #edf3ff;
   text-align: left;
-  padding: 0.66rem 0.74rem;
+  padding: 0.56rem 0.64rem;
   cursor: pointer;
 }
 
@@ -486,9 +484,9 @@
 
 .app-shell.is-game-route .advisor-shortcut-chip span {
   margin-top: 0.2rem;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   color: rgba(204, 219, 255, 0.8);
-  line-height: 1.35;
+  line-height: 1.28;
 }
 
 .app-shell.is-game-route .advisor-shortcut-row.diplomacy .advisor-shortcut-chip {
@@ -502,17 +500,17 @@
 }
 
 .app-shell.is-game-route .input-hint {
-  margin: -0.26rem 0 0.65rem;
+  margin: -0.2rem 0 0.52rem;
   color: rgba(190, 208, 247, 0.82);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
 }
 
 .app-shell.is-game-route .panel-command-bar {
   position: sticky;
   bottom: -0.05rem;
   z-index: 4;
-  margin-top: 0.82rem;
-  padding-top: 0.74rem;
+  margin-top: 0.62rem;
+  padding-top: 0.54rem;
   background: linear-gradient(180deg, rgba(12, 20, 38, 0), rgba(12, 20, 38, 0.94) 34%, rgba(12, 20, 38, 0.98));
   border-top: 1px solid rgba(118, 143, 218, 0.21);
 }
@@ -574,6 +572,48 @@
   color: rgba(200, 216, 253, 0.86);
 }
 
+.app-shell.is-game-route .selected-country-card,
+.app-shell.is-game-route .round-summary-card,
+.app-shell.is-game-route .advisor-summary,
+.app-shell.is-game-route .menu-card,
+.app-shell.is-game-route .advisor-card,
+.app-shell.is-game-route .empty-panel,
+.app-shell.is-game-route .advisor-suggestion-card,
+.app-shell.is-game-route .advisor-history-card {
+  border-radius: 0.9rem;
+  padding: 0.72rem 0.78rem;
+}
+
+.app-shell.is-game-route .selected-country-card strong {
+  font-size: 1.08rem;
+  letter-spacing: 0.01em;
+}
+
+.app-shell.is-game-route .selected-country-card span {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.app-shell.is-game-route .selected-country-card span:last-child {
+  color: rgba(220, 232, 255, 0.9);
+}
+
+.app-shell.is-game-route .quick-action-card {
+  padding: 0.68rem 0.72rem;
+  border-radius: 0.9rem;
+}
+
+.app-shell.is-game-route .event-card,
+.app-shell.is-game-route .timeline-card {
+  padding: 0.72rem 0.76rem;
+  border-radius: 0.86rem;
+}
+
+.app-shell.is-game-route .order-card {
+  padding: 0.68rem 0.72rem;
+  border-radius: 0.84rem;
+}
+
 .app-shell.is-game-route .event-impact-chip span {
   color: rgba(204, 220, 255, 0.86);
 }
@@ -617,10 +657,6 @@
     left: var(--hud-gap);
   }
 
-  .app-shell.is-game-route .game-status-pill {
-    display: none;
-  }
-
   .app-shell.is-game-route .world-map-legend {
     right: var(--hud-gap);
     max-width: calc(100% - (var(--hud-gap) * 2) - var(--hud-button-size) - 0.8rem);
@@ -643,10 +679,6 @@
 
   .app-shell.is-game-route .jump-capsule {
     left: calc(var(--hud-gap) + var(--hud-button-size) + 0.56rem);
-    right: var(--hud-gap);
-  }
-
-  .app-shell.is-game-route .timeline-toggle-button {
     right: var(--hud-gap);
   }
 
@@ -1109,7 +1141,7 @@
 .app-shell.is-game-route .floating-dock,
 .app-shell.is-game-route .floating-corner-button,
 .app-shell.is-game-route .floating-profile-button,
-.app-shell.is-game-route .timeline-toggle-button {
+.app-shell.is-game-route .timeline-toggle-inline {
   border-color: rgba(118, 144, 210, 0.22);
   background: rgba(6, 13, 27, 0.78);
   box-shadow: 0 16px 40px rgba(1, 5, 12, 0.44);

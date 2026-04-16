@@ -38,6 +38,10 @@ function extractJsonObject(raw: string): string {
   return trimmed;
 }
 
+function wantsFrench(locale?: string): boolean {
+  return locale === "fr";
+}
+
 export class OllamaProvider implements AIProvider {
   providerName = "ollama";
   private cachedModel: string | null = null;
@@ -58,6 +62,7 @@ export class OllamaProvider implements AIProvider {
   }
 
   async generateWorldNarrative(input: WorldNarrativeInput): Promise<string> {
+    const french = wantsFrench(input.locale);
     const prompt = [
       `World: ${input.worldName}`,
       `Scenario: ${input.scenarioId}`,
@@ -77,17 +82,22 @@ export class OllamaProvider implements AIProvider {
       input.timelineContextText ? `Snapshot context: ${input.timelineContextText}` : "No snapshot context.",
       input.latestEventText ? `Latest event: ${input.latestEventText}` : "No recent event.",
       input.advisorQuestion ? `Advisor question: ${input.advisorQuestion}` : "No direct advisor question.",
-      "Write a sharp strategy-game advisor briefing in English, 3 short sentences max, ending with one concrete recommended move."
+      french
+        ? "Ecris un briefing de conseiller pour un jeu de grande strategie en francais, en 3 phrases courtes maximum, et termine par un mouvement concret recommande."
+        : "Write a sharp strategy-game advisor briefing in English, 3 short sentences max, ending with one concrete recommended move."
     ].join("\n");
 
     return this.generateText(
-      "You are the advisor of an alternate-history grand strategy game. Be concrete, concise, and useful.",
+      french
+        ? "Tu es le conseiller d'un jeu de grande strategie uchronique. Reponds en francais, de maniere concrete, concise et utile."
+        : "You are the advisor of an alternate-history grand strategy game. Be concrete, concise, and useful.",
       prompt,
       () => this.fallback.generateWorldNarrative(input)
     );
   }
 
   async interpretOrder(input: OrderInterpretationInput): Promise<OrderInterpretation> {
+    const french = wantsFrench(input.locale);
     const countriesText = input.countries.map((country) => country.name).join(", ");
     const schema = {
       type: "object",
@@ -103,14 +113,18 @@ export class OllamaProvider implements AIProvider {
     };
 
     return this.generateJson<OrderInterpretation>(
-      "You classify player orders for a grand strategy simulation. Choose the single best order kind and the primary target country from the provided list. If the order is defensive but names a threatening rival, target that rival rather than the player's own country. Return only valid JSON.",
+      french
+        ? "Tu classes les ordres du joueur pour une simulation de grande strategie. Choisis le meilleur type d'ordre et le pays cible principal dans la liste fournie. Si l'ordre est defensif mais nomme un rival menaçant, cible ce rival plutot que le pays du joueur. Retourne uniquement du JSON valide."
+        : "You classify player orders for a grand strategy simulation. Choose the single best order kind and the primary target country from the provided list. If the order is defensive but names a threatening rival, target that rival rather than the player's own country. Return only valid JSON.",
       [
         `Scenario: ${input.presetTitle}`,
         `Player country: ${input.playerCountryName}`,
         `Date: ${input.dateLabel}`,
         `Valid countries: ${countriesText}`,
         `Player order: ${input.orderText}`,
-        "Normalize the order text into one concise actionable sentence."
+        french
+          ? "Normalise le texte de l'ordre en une seule phrase concise et actionnable."
+          : "Normalize the order text into one concise actionable sentence."
       ].join("\n"),
       schema,
       () => this.fallback.interpretOrder(input)
@@ -118,6 +132,7 @@ export class OllamaProvider implements AIProvider {
   }
 
   async generateDiplomacyReply(input: DiplomacyReplyInput): Promise<DiplomacyReply> {
+    const french = wantsFrench(input.locale);
     const schema = {
       type: "object",
       properties: {
@@ -131,7 +146,9 @@ export class OllamaProvider implements AIProvider {
     };
 
     return this.generateJson<DiplomacyReply>(
-      "You write plausible diplomatic replies for a grand strategy alternate-history game. Respect scenario logic, current tensions, and historical hostility. Do not make rivals instantly cooperative without a very strong reason. Reply in English only. If the stance is hostile, the answer must sound rejecting, suspicious, or threatening and must not use conciliatory language about cooperation, alliance, or agreement. Return only valid JSON.",
+      french
+        ? "Tu ecris des reponses diplomatiques plausibles pour un jeu de grande strategie uchronique. Respecte la logique du scenario, les tensions actuelles et l'hostilite historique. Ne rends pas les rivaux cooperatifs sans raison tres forte. Reponds en francais uniquement. Si le ton est hostile, la reponse doit sonner comme un refus, une suspicion ou une menace et ne doit pas utiliser de langage conciliant sur la cooperation, l'alliance ou l'accord. Retourne uniquement du JSON valide."
+        : "You write plausible diplomatic replies for a grand strategy alternate-history game. Respect scenario logic, current tensions, and historical hostility. Do not make rivals instantly cooperative without a very strong reason. Reply in English only. If the stance is hostile, the answer must sound rejecting, suspicious, or threatening and must not use conciliatory language about cooperation, alliance, or agreement. Return only valid JSON.",
       [
         `Scenario: ${input.presetTitle}`,
         `Date: ${input.dateLabel}`,
@@ -143,8 +160,12 @@ export class OllamaProvider implements AIProvider {
         input.worldPressureText ? `World pressure: ${input.worldPressureText}` : "No global pressure context provided.",
         input.recentConversationText ? `Conversation history: ${input.recentConversationText}` : "No prior conversation context.",
         `Incoming message: ${input.message}`,
-        "The reply should feel like a state response, not a chatbot answer.",
-        "Keep the reply to 1 or 2 short paragraphs."
+        french
+          ? "La reponse doit ressembler a une reponse d'Etat, pas a un chatbot."
+          : "The reply should feel like a state response, not a chatbot answer.",
+        french
+          ? "Garde la reponse en 1 ou 2 courts paragraphes."
+          : "Keep the reply to 1 or 2 short paragraphs."
       ].join("\n"),
       schema,
       () => this.fallback.generateDiplomacyReply(input)
@@ -152,6 +173,7 @@ export class OllamaProvider implements AIProvider {
   }
 
   async generateRoundNarrative(input: RoundNarrativeInput): Promise<RoundNarrative> {
+    const french = wantsFrench(input.locale);
     const schema = {
       type: "object",
       properties: {
@@ -175,24 +197,70 @@ export class OllamaProvider implements AIProvider {
     };
 
     return this.generateJson<RoundNarrative>(
-      "You generate an event card for a grand strategy alternate-history game. Return only valid JSON. Make the output feel like an in-game event window.",
+      french
+        ? "Tu generes une carte d'evenement pour un jeu de grande strategie uchronique. Retourne seulement du JSON valide. Fais sentir une fenetre d'evenement en jeu."
+        : "You generate an event card for a grand strategy alternate-history game. Return only valid JSON. Make the output feel like an in-game event window.",
       [
-        `Scenario: ${input.presetTitle}`,
-        `Player country: ${input.playerCountryName}`,
-        `From: ${input.fromDateLabel}`,
-        `To: ${input.toDateLabel}`,
-        `Applied orders: ${input.appliedOrders}`,
-        `Orders summary: ${input.ordersText}`,
-        `World pressure: ${input.worldPressureText}`,
-        `Averages: wealth ${input.avgRichness}, stability ${input.avgStability}, tension ${input.avgTension}`,
-        input.recentEventsText ? `Recent events context: ${input.recentEventsText}` : "No recent events context.",
-        input.countryPulseText ? `Country pulse context: ${input.countryPulseText}` : "No country pulse context.",
-        input.latestEventText ? `Latest event in log: ${input.latestEventText}` : "No major prior event.",
-        "Write crisp English suitable for a Pax Historia-like event panel."
+        french ? `Scenario: ${input.presetTitle}` : `Scenario: ${input.presetTitle}`,
+        french ? `Pays joueur: ${input.playerCountryName}` : `Player country: ${input.playerCountryName}`,
+        french ? `De: ${input.fromDateLabel}` : `From: ${input.fromDateLabel}`,
+        french ? `Vers: ${input.toDateLabel}` : `To: ${input.toDateLabel}`,
+        french ? `Ordres appliques: ${input.appliedOrders}` : `Applied orders: ${input.appliedOrders}`,
+        french ? `Resume des ordres: ${input.ordersText}` : `Orders summary: ${input.ordersText}`,
+        french ? `Pression mondiale: ${input.worldPressureText}` : `World pressure: ${input.worldPressureText}`,
+        french
+          ? `Moyennes: richesse ${input.avgRichness}, stabilite ${input.avgStability}, tension ${input.avgTension}`
+          : `Averages: wealth ${input.avgRichness}, stability ${input.avgStability}, tension ${input.avgTension}`,
+        input.recentEventsText
+          ? french
+            ? `Contexte des evenements recents: ${input.recentEventsText}`
+            : `Recent events context: ${input.recentEventsText}`
+          : french
+            ? "Aucun contexte d'evenements recents."
+            : "No recent events context.",
+        input.countryPulseText
+          ? french
+            ? `Contexte de tension des pays: ${input.countryPulseText}`
+            : `Country pulse context: ${input.countryPulseText}`
+          : french
+            ? "Aucun contexte de pays."
+            : "No country pulse context.",
+        input.latestEventText
+          ? french
+            ? `Dernier evenement dans le journal: ${input.latestEventText}`
+            : `Latest event in log: ${input.latestEventText}`
+          : french
+            ? "Aucun evenement majeur precedent."
+            : "No major prior event.",
+        french
+          ? "Ecris en francais clair et concis, adapte a un panneau d'evenement de type Pax Historia."
+          : "Write crisp English suitable for a Pax Historia-like event panel."
       ].join("\n"),
       schema,
       () => this.fallback.generateRoundNarrative(input)
     );
+  }
+
+  async generateNarrativeDecision(input: {
+    year: number;
+    month: number;
+    narrativeContext?: string;
+    narrativeMemory?: string[];
+  }): Promise<string> {
+    return this.generateText(
+      "You are a strategic narrator deciding the next narrative beat for a grand strategy game.",
+      [
+        `Date: ${input.year}-${input.month}`,
+        input.narrativeContext ? `Context: ${input.narrativeContext}` : "No extra context.",
+        input.narrativeMemory?.length ? `Memory: ${input.narrativeMemory.slice(0, 5).join(" | ")}` : "No memory.",
+        "Return a single short sentence."
+      ].join("\n"),
+      async () => "Narrative decision unavailable."
+    );
+  }
+
+  async updateNarrativeMemory(_memory: string[]): Promise<void> {
+    return;
   }
 
   private async generateText(

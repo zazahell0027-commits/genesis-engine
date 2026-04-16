@@ -10,6 +10,7 @@ import type {
   PresetCategory,
   QuickActionKind
 } from "@genesis/shared";
+import type { UiLocale } from "./i18n";
 
 type TokenBalanceResponse = {
   userId: string;
@@ -69,6 +70,7 @@ export async function startGame(input: {
   countryId: string;
   difficulty: string;
   aiQuality: string;
+  locale?: "fr" | "en";
 }): Promise<GameState> {
   const response = await fetch(`${API_BASE_URL}/game/start`, {
     method: "POST",
@@ -91,11 +93,11 @@ export async function deleteGameSession(gameId: string): Promise<void> {
   }
 }
 
-export async function queueOrder(gameId: string, text: string): Promise<GameState> {
+export async function queueOrder(gameId: string, text: string, options?: { locale?: UiLocale }): Promise<GameState> {
   const response = await fetch(`${API_BASE_URL}/game/order`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameId, text })
+    body: JSON.stringify({ gameId, text, locale: options?.locale })
   });
 
   return parseJson<GameState>(response);
@@ -125,21 +127,21 @@ export async function removeOrder(gameId: string, orderId: string): Promise<Game
   return parseJson<GameState>(response);
 }
 
-export async function jumpForward(gameId: string, step: JumpStep): Promise<GameState> {
+export async function jumpForward(gameId: string, step: JumpStep, options?: { locale?: UiLocale }): Promise<GameState> {
   const response = await fetch(`${API_BASE_URL}/game/jump`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameId, step })
+    body: JSON.stringify({ gameId, step, locale: options?.locale })
   });
 
   return parseJson<GameState>(response);
 }
 
-export async function jumpToMajorEvent(gameId: string): Promise<GameState> {
+export async function jumpToMajorEvent(gameId: string, options?: { locale?: UiLocale }): Promise<GameState> {
   const response = await fetch(`${API_BASE_URL}/game/jump/major-event`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameId })
+    body: JSON.stringify({ gameId, locale: options?.locale })
   });
 
   return parseJson<GameState>(response);
@@ -148,12 +150,13 @@ export async function jumpToMajorEvent(gameId: string): Promise<GameState> {
 export async function sendDiplomacy(
   gameId: string,
   targetCountryId: string,
-  message: string
+  message: string,
+  options?: { locale?: UiLocale }
 ): Promise<DiplomacyExchange> {
   const response = await fetch(`${API_BASE_URL}/game/diplomacy`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ gameId, targetCountryId, message })
+    body: JSON.stringify({ gameId, targetCountryId, message, locale: options?.locale })
   });
 
   return parseJson<DiplomacyExchange>(response);
@@ -161,7 +164,7 @@ export async function sendDiplomacy(
 
 export async function getAdvisor(
   gameId: string,
-  options?: { snapshotId?: string; prompt?: string }
+  options?: { snapshotId?: string; prompt?: string; locale?: UiLocale }
 ): Promise<AdvisorResponse> {
   const response = await fetch(`${API_BASE_URL}/game/advisor`, {
     method: "POST",
@@ -169,7 +172,8 @@ export async function getAdvisor(
     body: JSON.stringify({
       gameId,
       snapshotId: options?.snapshotId,
-      prompt: options?.prompt
+      prompt: options?.prompt,
+      locale: options?.locale
     })
   });
 

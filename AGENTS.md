@@ -4,10 +4,7 @@
 Avant de commencer une tache, lis `reports/next-task.md`.
 
 ## Maniere de travailler
-- Travaille sur la tache courante et reste dans le scope demande.
-- Evite les refactors non demandes.
-- Si quelque chose bloque, explique clairement le blocage.
-- Quand une tache est terminee, fais un resume clair de ce qui a ete fait, de ce qui reste a faire et des risques eventuels.
+
 
 ## Git (regles durables)
 - Ne pas push automatiquement.

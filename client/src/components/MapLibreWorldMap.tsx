@@ -10,9 +10,18 @@ import {
   makeEffectCollection
 } from "../features/maplibre/maplibreData";
 import { addOrUpdateGeoJsonSource, installMapLibreLayers } from "../features/maplibre/maplibreLayers";
-import { DEFAULT_STYLE_URL, LAYERS, SOURCES, type CountryFeatureProperties, type CountryGeometry, type MapLibreWorldMapProps } from "../features/maplibre/maplibreTypes";
+import {
+  DEFAULT_STYLE_URL,
+  LAYERS,
+  SOURCES,
+  type CountryFeatureProperties,
+  type CountryGeometry,
+  type MapLibreWorldMapProps,
+  type MapViewMode
+} from "../features/maplibre/maplibreTypes";
 import type { GeoFeatureCollection } from "../features/map/types";
 import type { OverlayMode } from "../features/map/MapChrome";
+import { translateCountryDescriptor, translateCountryName, translateSpatialBriefingLabel } from "../i18n";
 
 function mapStyleUrl(): string {
   const envValue = import.meta.env.VITE_MAP_STYLE_URL as string | undefined;
@@ -38,37 +47,61 @@ function fitCountries(map: maplibregl.Map, geometries: Map<string, CountryGeomet
   });
 }
 
+function defaultViewModeFromProgress(knowledgeTier: string, orbitUnlocked: boolean, moonUnlocked: boolean): MapViewMode {
+  if (moonUnlocked) return "lune";
+  if (orbitUnlocked) return "orbite";
+  if (knowledgeTier === "limited") return "terre";
+  return "globe";
+}
+
 export function MapLibreWorldMap({
   countries,
   preset,
+  playerCountryId,
+  playerCountryName,
+  briefingMomentTitle,
+  briefingMomentText,
+  briefingSummary,
+  uiLocale = "fr",
   selectedCountryId,
   mapEffects = [],
   mapArtifacts = [],
+  spatialProgress,
   highlightedCountryIds = [],
   focusCountryIds = [],
   focusToken,
-  onSelectCountry
+  onSelectCountry,
+  onRequestContextMenu
 }: MapLibreWorldMapProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const popupDelayRef = useRef<number | null>(null);
+  const popupHideRef = useRef<number | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [countryGeometries, setCountryGeometries] = useState<Map<string, CountryGeometry>>(new Map());
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("balanced");
+  const [briefExpanded, setBriefExpanded] = useState(true);
+  const [viewMode, setViewMode] = useState<MapViewMode>(() => defaultViewModeFromProgress(
+    spatialProgress.knowledgeTier,
+    spatialProgress.orbitUnlocked,
+    spatialProgress.moonUnlocked
+  ));
   const styleUrl = mapStyleUrl();
 
   const countriesById = useMemo(
     () => new Map(countries.map((country) => [country.id, country])),
     [countries]
   );
+  const knownCountrySet = useMemo(() => new Set(spatialProgress.knownCountryIds), [spatialProgress.knownCountryIds]);
   const countryCollection = useMemo(
-    () => makeCountryCollection(countries, countryGeometries, selectedCountryId, highlightedCountryIds, focusCountryIds),
-    [countries, countryGeometries, focusCountryIds, highlightedCountryIds, selectedCountryId]
+    () => makeCountryCollection(countries, countryGeometries, selectedCountryId, knownCountrySet, highlightedCountryIds, focusCountryIds, uiLocale),
+    [countries, countryGeometries, focusCountryIds, highlightedCountryIds, knownCountrySet, selectedCountryId, uiLocale]
   );
   const labelCollection = useMemo(
-    () => makeCountryLabelCollection(countries, countryGeometries),
-    [countries, countryGeometries]
+    () => makeCountryLabelCollection(countries, countryGeometries, knownCountrySet, uiLocale),
+    [countries, countryGeometries, knownCountrySet, uiLocale]
   );
   const cityCollection = useMemo(() => makeCitiesCollection(countriesById), [countriesById]);
   const effectCollection = useMemo(
@@ -79,6 +112,50 @@ export function MapLibreWorldMap({
     () => makeArtifactCollection(mapArtifacts, countryGeometries, overlayMode),
     [countryGeometries, mapArtifacts, overlayMode]
   );
+  const activeCountry = selectedCountryId ? countriesById.get(selectedCountryId) ?? null : null;
+  const countryCount = Math.max(1, countries.length);
+  const worldStability = countries.length > 0
+    ? Math.round(countries.reduce((sum, country) => sum + country.stability, 0) / countries.length)
+    : 0;
+  const worldTension = countries.length > 0
+    ? Math.round(countries.reduce((sum, country) => sum + country.tension, 0) / countries.length)
+    : 0;
+  const briefingCountryId = playerCountryId || activeCountry?.id || null;
+  const briefingCountryForRanks = briefingCountryId ? countriesById.get(briefingCountryId) ?? null : null;
+  const economyRank = briefingCountryForRanks
+    ? [...countries].sort((a, b) => b.wealth - a.wealth).findIndex((country) => country.id === briefingCountryForRanks.id) + 1
+    : 0;
+  const powerRank = briefingCountryForRanks
+    ? [...countries].sort((a, b) => b.power - a.power).findIndex((country) => country.id === briefingCountryForRanks.id) + 1
+    : 0;
+  const stabilityRank = briefingCountryForRanks
+    ? [...countries].sort((a, b) => b.stability - a.stability).findIndex((country) => country.id === briefingCountryForRanks.id) + 1
+    : 0;
+  const pressureRank = briefingCountryForRanks
+    ? [...countries].sort((a, b) => b.tension - a.tension).findIndex((country) => country.id === briefingCountryForRanks.id) + 1
+    : 0;
+  const rankSpan = Math.max(1, countryCount - 1);
+  const economyStrength = economyRank > 0 ? 1 - ((economyRank - 1) / rankSpan) : 0.45;
+  const powerStrength = powerRank > 0 ? 1 - ((powerRank - 1) / rankSpan) : 0.45;
+  const stabilityStrength = stabilityRank > 0 ? 1 - ((stabilityRank - 1) / rankSpan) : 0.45;
+  const tensionStrength = pressureRank > 0 ? (pressureRank - 1) / rankSpan : 0.4;
+  const playerCountry = briefingCountryForRanks ?? activeCountry ?? null;
+  const briefingCountry = playerCountry ?? activeCountry;
+  const worldBriefingTitle = briefingCountry ? translateCountryName(briefingCountry.name, uiLocale) : (playerCountryName ?? preset.title);
+  const briefingDescriptor = translateCountryDescriptor(briefingCountry?.descriptor ?? "Lecture strategique", uiLocale);
+  const briefingStageLabel = translateSpatialBriefingLabel(spatialProgress.knowledgeTier, uiLocale);
+  const mapProjection = viewMode === "terre" ? "mercator" : "globe";
+  const viewButtons: Array<{
+    mode: MapViewMode;
+    label: string;
+    caption: string;
+    locked?: boolean;
+  }> = [
+    { mode: "terre", label: "Terre", caption: "Planisphère" },
+    { mode: "globe", label: "Globe", caption: "Lecture globale" },
+    { mode: "orbite", label: "Orbite", caption: "Transition spatiale", locked: !spatialProgress.orbitUnlocked },
+    { mode: "lune", label: "Lune", caption: "Théâtre lunaire", locked: !spatialProgress.moonUnlocked }
+  ];
 
   useEffect(() => {
     let cancelled = false;
@@ -108,17 +185,19 @@ export function MapLibreWorldMap({
       container: containerRef.current,
       style: styleUrl,
       center: [15, 24],
-      zoom: 1.62,
-      minZoom: 1.15,
+      zoom: Math.max(1.3, spatialProgress.minZoom + 0.15),
+      minZoom: spatialProgress.minZoom,
       maxZoom: 8.6,
       pitch: 0,
       bearing: 0,
-      renderWorldCopies: true,
+      dragRotate: false,
+      renderWorldCopies: false,
       attributionControl: false
     });
 
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
     map.on("load", () => setMapReady(true));
     map.on("error", (event) => {
       setMapError(event.error?.message ?? "Erreur de chargement MapLibre");
@@ -133,6 +212,14 @@ export function MapLibreWorldMap({
     mapRef.current = map;
 
     return () => {
+      if (popupDelayRef.current !== null) {
+        window.clearTimeout(popupDelayRef.current);
+        popupDelayRef.current = null;
+      }
+      if (popupHideRef.current !== null) {
+        window.clearTimeout(popupHideRef.current);
+        popupHideRef.current = null;
+      }
       popupRef.current?.remove();
       popupRef.current = null;
       map.remove();
@@ -167,6 +254,40 @@ export function MapLibreWorldMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    map.setMinZoom(spatialProgress.minZoom);
+    map.setProjection({ type: mapProjection as "mercator" | "globe" });
+
+    if (map.getZoom() < spatialProgress.minZoom) {
+      map.easeTo({
+        zoom: spatialProgress.minZoom,
+        duration: 420
+      });
+    }
+  }, [mapProjection, mapReady, spatialProgress.minZoom]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    applyViewMode(viewMode);
+  }, [mapReady, spatialProgress.minZoom, viewMode]);
+
+  useEffect(() => {
+    setViewMode((current) => {
+      if (current === "lune" && !spatialProgress.moonUnlocked) {
+        return defaultViewModeFromProgress(spatialProgress.knowledgeTier, spatialProgress.orbitUnlocked, spatialProgress.moonUnlocked);
+      }
+
+      if (current === "orbite" && !spatialProgress.orbitUnlocked) {
+        return defaultViewModeFromProgress(spatialProgress.knowledgeTier, spatialProgress.orbitUnlocked, spatialProgress.moonUnlocked);
+      }
+
+      return current;
+    });
+  }, [spatialProgress.knowledgeTier, spatialProgress.moonUnlocked, spatialProgress.orbitUnlocked]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !mapReady || !map.getLayer(LAYERS.countryFill)) return;
 
     const onMouseMove = (event: maplibregl.MapLayerMouseEvent): void => {
@@ -176,18 +297,57 @@ export function MapLibreWorldMap({
       const country = countriesById.get(properties.countryId);
       if (!country) return;
 
-      popupRef.current
-        ?.setLngLat(event.lngLat)
-        .setHTML(`
-          <strong>${country.name}</strong>
-          <span>${country.descriptor}</span>
-          <small>Puissance ${country.power} | Stabilite ${country.stability} | Tension ${country.tension}</small>
-        `)
-        .addTo(map);
+      if (popupDelayRef.current !== null) {
+        window.clearTimeout(popupDelayRef.current);
+      }
+      popupDelayRef.current = window.setTimeout(() => {
+        popupDelayRef.current = null;
+        const discovered = knownCountrySet.has(country.id);
+        const popupTitle = discovered
+          ? country.name
+          : uiLocale === "fr"
+            ? "Territoire partiellement cartographie"
+            : "Partially mapped territory";
+        const popupDetail = discovered
+          ? translateCountryDescriptor(country.descriptor, uiLocale)
+          : uiLocale === "fr"
+            ? "Les donnees sont incompletes a cette echelle."
+            : "The data is incomplete at this scale.";
+        const popupHint = discovered
+          ? uiLocale === "fr"
+            ? `Puissance ${country.power} \u2022 Stabilite ${country.stability} \u2022 Tension ${country.tension}`
+            : `Power ${country.power} \u2022 Stability ${country.stability} \u2022 Tension ${country.tension}`
+          : uiLocale === "fr"
+            ? "Cliquez pour approfondir la lecture."
+            : "Click to zoom into the reading.";
+        popupRef.current
+          ?.setLngLat(event.lngLat)
+          .setHTML(`
+            <strong>${popupTitle}</strong>
+            <span>${popupDetail}</span>
+            <small>${popupHint}</small>
+          `)
+          .addTo(map);
+        if (popupHideRef.current !== null) {
+          window.clearTimeout(popupHideRef.current);
+        }
+        popupHideRef.current = window.setTimeout(() => {
+          popupHideRef.current = null;
+          popupRef.current?.remove();
+        }, 2200);
+      }, 220);
     };
 
     const onMouseLeave = (): void => {
       map.getCanvas().style.cursor = "";
+      if (popupDelayRef.current !== null) {
+        window.clearTimeout(popupDelayRef.current);
+        popupDelayRef.current = null;
+      }
+      if (popupHideRef.current !== null) {
+        window.clearTimeout(popupHideRef.current);
+        popupHideRef.current = null;
+      }
       popupRef.current?.remove();
     };
 
@@ -196,16 +356,58 @@ export function MapLibreWorldMap({
       if (properties?.countryId) onSelectCountry(properties.countryId);
     };
 
+    const onContextMenu = (event: maplibregl.MapMouseEvent): void => {
+      event.originalEvent.preventDefault();
+      event.originalEvent.stopPropagation();
+      const features = map.queryRenderedFeatures(event.point, { layers: [LAYERS.countryFill] });
+      const properties = features[0]?.properties as Partial<CountryFeatureProperties> | undefined;
+      const countryId = properties?.countryId ?? null;
+      const countryName = properties?.name ?? null;
+      const surfaceKind = countryId
+        ? "country"
+        : viewMode === "lune"
+          ? "lunar"
+          : viewMode === "orbite"
+            ? "orbital"
+            : "ocean";
+      const surfaceLabel = countryId
+        ? countryName ?? (uiLocale === "fr" ? "Zone terrestre" : "Land zone")
+        : viewMode === "lune"
+          ? uiLocale === "fr"
+            ? "Surface lunaire"
+            : "Lunar surface"
+          : viewMode === "orbite"
+            ? uiLocale === "fr"
+              ? "Espace orbital"
+              : "Orbital space"
+            : uiLocale === "fr"
+              ? "Zone maritime / vide cartographique"
+              : "Maritime zone / empty map";
+      onRequestContextMenu?.({
+        countryId,
+        countryName,
+        surfaceKind,
+        surfaceLabel,
+        longitude: event.lngLat.lng,
+        latitude: event.lngLat.lat,
+        viewMode,
+        clientX: event.originalEvent.clientX,
+        clientY: event.originalEvent.clientY
+      });
+    };
+
     map.on("mousemove", LAYERS.countryFill, onMouseMove);
     map.on("mouseleave", LAYERS.countryFill, onMouseLeave);
     map.on("click", LAYERS.countryFill, onClick);
+    map.on("contextmenu", onContextMenu);
 
     return () => {
       map.off("mousemove", LAYERS.countryFill, onMouseMove);
       map.off("mouseleave", LAYERS.countryFill, onMouseLeave);
       map.off("click", LAYERS.countryFill, onClick);
+      map.off("contextmenu", onContextMenu);
     };
-  }, [countriesById, mapReady, onSelectCountry]);
+  }, [activeCountry?.name, countriesById, knownCountrySet, mapReady, onRequestContextMenu, onSelectCountry, selectedCountryId]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -213,67 +415,142 @@ export function MapLibreWorldMap({
     fitCountries(map, countryGeometries, focusCountryIds);
   }, [countryGeometries, focusCountryIds, focusToken, mapReady]);
 
-  function recenterWorld(): void {
-    mapRef.current?.easeTo({ center: [15, 24], zoom: 1.62, pitch: 0, bearing: 0, duration: 650 });
-  }
-
-  function focusEurope(): void {
-    mapRef.current?.fitBounds([[-12, 34], [45, 72]], {
-      padding: { top: 120, right: 120, bottom: 100, left: 120 },
-      duration: 650
-    });
-  }
-
-  function focusSelected(): void {
+  function applyViewMode(nextMode: MapViewMode): void {
     const map = mapRef.current;
-    if (!map || !selectedCountryId) return;
-    fitCountries(map, countryGeometries, [selectedCountryId]);
+    if (!map) return;
+
+    setViewMode(nextMode);
+
+    const pitch = nextMode === "terre" ? 0 : nextMode === "globe" ? 18 : nextMode === "orbite" ? 42 : 58;
+    const zoom = nextMode === "terre"
+      ? Math.max(1.2, spatialProgress.minZoom + 0.1)
+      : nextMode === "globe"
+        ? spatialProgress.minZoom + 0.2
+        : nextMode === "orbite"
+          ? spatialProgress.minZoom + 0.55
+          : spatialProgress.minZoom + 0.82;
+
+    map.setProjection({ type: nextMode === "terre" ? "mercator" : "globe" });
+    map.easeTo({
+      center: [15, 24],
+      zoom,
+      pitch,
+      bearing: 0,
+      duration: 680
+    });
   }
 
-  function setPitch(enabled: boolean): void {
-    mapRef.current?.easeTo({
-      pitch: enabled ? 50 : 0,
-      bearing: enabled ? -18 : 0,
-      duration: 560
-    });
+  function recenterWorld(): void {
+    const defaultMode = defaultViewModeFromProgress(spatialProgress.knowledgeTier, spatialProgress.orbitUnlocked, spatialProgress.moonUnlocked);
+    applyViewMode(defaultMode);
   }
 
   return (
     <div className="world-map-shell maplibre-world-shell">
       <div className="world-map-tools maplibre-map-tools">
-        <div className="map-mode-row">
-          {([
-            ["balanced", "Equilibre"],
-            ["tension", "Crises"],
-            ["army", "Troupes"],
-            ["fortification", "Forts"],
-            ["industry", "Industrie"]
-          ] as Array<[OverlayMode, string]>).map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              className={`map-tool-button mode-button${overlayMode === mode ? " is-active" : ""}`}
-              onClick={() => setOverlayMode(mode)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="map-tool-row">
-          <button type="button" className="map-tool-button" onClick={recenterWorld}>Monde</button>
-          <button type="button" className="map-tool-button" onClick={focusEurope}>Europe</button>
-          <button type="button" className="map-tool-button" onClick={focusSelected} disabled={!selectedCountryId}>Focus</button>
-          <button type="button" className="map-tool-button" onClick={() => setPitch(true)}>Relief</button>
-          <button type="button" className="map-tool-button" onClick={() => setPitch(false)}>Flat</button>
-        </div>
+        <button type="button" className="map-tool-button map-world-button" onClick={recenterWorld}>
+          Monde
+        </button>
       </div>
 
       <div className="world-map-legend maplibre-map-legend">
-        <span className="legend-item legend-mode">{`MapLibre: ${preset.title}`}</span>
-        <span className="legend-item"><i className="legend-dot kind-army" /> Troupes</span>
-        <span className="legend-item"><i className="legend-dot kind-fortification" /> Forts</span>
-        <span className="legend-item"><i className="legend-dot kind-industry" /> Industrie</span>
-        <span className="legend-item"><i className="legend-dot kind-crisis" /> Crise</span>
+        <div className="maplibre-brief">
+          <div className="maplibre-brief-kicker">
+            <button
+              type="button"
+              className="legend-item legend-mode maplibre-brief-mode"
+              onClick={() => setBriefExpanded((current) => !current)}
+              aria-expanded={briefExpanded}
+            >
+              {briefingStageLabel}
+            </button>
+          </div>
+          {briefExpanded && (
+            <>
+              <div className="maplibre-brief-journal">
+                <span className="maplibre-brief-eyebrow">{uiLocale === "fr" ? "Nation jouée" : "Played nation"}</span>
+                <strong>{worldBriefingTitle}</strong>
+                <span className="maplibre-brief-role">{briefingDescriptor}</span>
+                <p>{briefingSummary}</p>
+              </div>
+              <div className="maplibre-brief-ledger">
+                <article className="maplibre-brief-entry">
+                  <span>{uiLocale === "fr" ? "Moment du tour" : "Turn moment"}</span>
+                  <strong>{briefingMomentTitle}</strong>
+                  <p>{briefingMomentText}</p>
+                </article>
+                <article className="maplibre-brief-entry is-target">
+                  <span>{uiLocale === "fr" ? "Couverture cartographique" : "Map coverage"}</span>
+                  <strong>{`${spatialProgress.discoveryPercent}%`}</strong>
+                  <p>
+                    {uiLocale === "fr"
+                      ? `${spatialProgress.knownCountryIds.length} pays reveles. ${spatialProgress.orbitUnlocked ? "Orbite deverrouillee." : "Orbite verrouillee."} ${spatialProgress.moonUnlocked ? "Lune deverrouillee." : "Lune verrouillee."}`
+                      : `${spatialProgress.knownCountryIds.length} countries revealed. ${spatialProgress.orbitUnlocked ? "Orbit unlocked." : "Orbit locked."} ${spatialProgress.moonUnlocked ? "Moon unlocked." : "Moon locked."}`}
+                  </p>
+                </article>
+              </div>
+              <div className="maplibre-brief-stats">
+                <span
+                  className="brief-stat is-economy"
+                  style={{
+                    background: `linear-gradient(180deg, rgba(111, 211, 128, ${0.12 + economyStrength * 0.14}), rgba(255, 255, 255, 0.03))`
+                  }}
+                >
+                  <strong>{uiLocale === "fr" ? "Economie" : "Economy"}</strong>
+                  <em>{`#${economyRank || "?"}/${countryCount}`}</em>
+                  <i className="brief-meter" aria-hidden="true"><b style={{ width: `${Math.max(10, Math.round(economyStrength * 100))}%` }} /></i>
+                </span>
+                <span
+                  className="brief-stat is-influence"
+                  style={{
+                    background: `linear-gradient(180deg, rgba(120, 157, 255, ${0.12 + powerStrength * 0.14}), rgba(255, 255, 255, 0.03))`
+                  }}
+                >
+                  <strong>{uiLocale === "fr" ? "Influence" : "Influence"}</strong>
+                  <em>{`#${powerRank || "?"}/${countryCount}`}</em>
+                  <i className="brief-meter" aria-hidden="true"><b style={{ width: `${Math.max(10, Math.round(powerStrength * 100))}%` }} /></i>
+                </span>
+                <span
+                  className="brief-stat is-stability"
+                  style={{
+                    background: `linear-gradient(180deg, rgba(105, 222, 198, ${0.11 + stabilityStrength * 0.13}), rgba(255, 255, 255, 0.03))`
+                  }}
+                >
+                  <strong>{uiLocale === "fr" ? "Stabilite" : "Stability"}</strong>
+                  <em>{`${worldStability} / rang #${stabilityRank || "?"}`}</em>
+                  <i className="brief-meter" aria-hidden="true"><b style={{ width: `${Math.max(10, Math.round(stabilityStrength * 100))}%` }} /></i>
+                </span>
+                <span
+                  className="brief-stat is-tension"
+                  style={{
+                    background: `linear-gradient(180deg, rgba(255, 164, 92, ${0.1 + tensionStrength * 0.14}), rgba(255, 255, 255, 0.03))`
+                  }}
+                >
+                  <strong>{uiLocale === "fr" ? "Tension" : "Tension"}</strong>
+                  <em>{`${worldTension} / rang #${pressureRank || "?"}`}</em>
+                  <i className="brief-meter" aria-hidden="true"><b style={{ width: `${Math.max(10, Math.round(tensionStrength * 100))}%` }} /></i>
+                </span>
+              </div>
+              <div className="maplibre-brief-track" aria-label="Progression spatiale">
+                {viewButtons.map((button) => (
+                  <button
+                    key={button.mode}
+                    type="button"
+                    className={`track-node${viewMode === button.mode ? " is-active" : ""}${button.locked ? " is-locked" : ""}`}
+                    onClick={() => {
+                      if (!button.locked) applyViewMode(button.mode);
+                    }}
+                    disabled={Boolean(button.locked)}
+                    aria-pressed={viewMode === button.mode}
+                  >
+                    <strong>{button.label}</strong>
+                    <span>{button.caption}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div ref={containerRef} className="maplibre-world-map" />

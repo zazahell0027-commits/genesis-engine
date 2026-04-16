@@ -15,6 +15,60 @@ function tensionLabel(avgTension: number): string {
   return "relatively calm";
 }
 
+function isFrenchLocale(locale?: string): boolean {
+  return locale === "fr";
+}
+
+function worldToneLabel(avgTension: number, locale?: string): string {
+  if (isFrenchLocale(locale)) {
+    if (avgTension >= 65) return "tres instable";
+    if (avgTension >= 50) return "sous pression";
+    return "assez calme";
+  }
+
+  return tensionLabel(avgTension);
+}
+
+function renderWorldNarrative(input: WorldNarrativeInput): string {
+  const french = isFrenchLocale(input.locale);
+  const tone = worldToneLabel(input.avgTension, input.locale);
+  const latest = input.latestEventText
+    ? french ? `Dernier evenement: ${input.latestEventText}.` : `Latest event: ${input.latestEventText}.`
+    : french ? "Aucun grand evenement signale pour le moment." : "No major event reported yet.";
+  const queuedOrders = input.queuedOrdersText
+    ? french ? `Ordres en file: ${input.queuedOrdersText}.` : `Queued orders: ${input.queuedOrdersText}.`
+    : french ? "Aucun ordre en file." : "No queued orders.";
+  const recentEvents = input.recentEventsText ? `${french ? "Evenements recents" : "Recent events"}: ${input.recentEventsText}.` : "";
+  const diplomacy = input.diplomacyContextText ? `${french ? "Diplomatie" : "Diplomacy"}: ${input.diplomacyContextText}.` : "";
+  const question = input.advisorQuestion ? `${french ? "Question guide" : "Focus question"}: ${input.advisorQuestion}.` : "";
+
+  if (french) {
+    return [
+      `${input.worldName} | scenario ${input.scenarioId} | date ${input.dateLabel}.`,
+      `Tour ${input.tick}: le monde est ${tone}, stabilite ${input.avgStability}, richesse ${input.avgRichness}.`,
+      `Points d'action ${input.actionPoints}/${input.maxActionPoints}. Factions: ${input.factionsText}.`,
+      input.playerStateText ? `Etat du joueur: ${input.playerStateText}.` : "",
+      queuedOrders,
+      diplomacy,
+      recentEvents,
+      latest,
+      question
+    ].join(" ");
+  }
+
+  return [
+    `${input.worldName} | scenario ${input.scenarioId} | date ${input.dateLabel}.`,
+    `Tick ${input.tick}: world is ${tone}, stability ${input.avgStability}, wealth ${input.avgRichness}.`,
+    `Action points ${input.actionPoints}/${input.maxActionPoints}. Factions: ${input.factionsText}.`,
+    input.playerStateText ? `Player state: ${input.playerStateText}.` : "",
+    queuedOrders,
+    diplomacy,
+    recentEvents,
+    latest,
+    question
+  ].join(" ");
+}
+
 function detectOrderKind(text: string): OrderInterpretation["kind"] {
   const normalized = text
     .toLowerCase()
@@ -96,26 +150,7 @@ export class MockProvider implements AIProvider {
   }
 
   async generateWorldNarrative(input: WorldNarrativeInput): Promise<string> {
-    const tone = tensionLabel(input.avgTension);
-    const latest = input.latestEventText
-      ? `Latest event: ${input.latestEventText}.`
-      : "No major event reported yet.";
-    const queuedOrders = input.queuedOrdersText ? `Queued orders: ${input.queuedOrdersText}.` : "No queued orders.";
-    const recentEvents = input.recentEventsText ? `Recent events: ${input.recentEventsText}.` : "";
-    const diplomacy = input.diplomacyContextText ? `Diplomacy: ${input.diplomacyContextText}.` : "";
-    const question = input.advisorQuestion ? `Focus question: ${input.advisorQuestion}.` : "";
-
-    return [
-      `${input.worldName} | scenario ${input.scenarioId} | date ${input.dateLabel}.`,
-      `Tick ${input.tick}: world is ${tone}, stability ${input.avgStability}, wealth ${input.avgRichness}.`,
-      `Action points ${input.actionPoints}/${input.maxActionPoints}. Factions: ${input.factionsText}.`,
-      input.playerStateText ? `Player state: ${input.playerStateText}.` : "",
-      queuedOrders,
-      diplomacy,
-      recentEvents,
-      latest,
-      question
-    ].join(" ");
+    return renderWorldNarrative(input);
   }
 
   async interpretOrder(input: OrderInterpretationInput): Promise<OrderInterpretation> {
@@ -128,33 +163,72 @@ export class MockProvider implements AIProvider {
 
   async generateDiplomacyReply(input: DiplomacyReplyInput): Promise<DiplomacyReply> {
     const base = fallbackDiplomacy(input);
+    const french = isFrenchLocale(input.locale);
     if (!input.recentConversationText && !input.worldPressureText) {
       return base;
     }
 
     return {
       ...base,
-      reply: `${base.reply} ${input.worldPressureText ? `Context: ${input.worldPressureText}` : ""}`.trim()
+      reply: `${base.reply} ${input.worldPressureText ? `${french ? "Contexte" : "Context"}: ${input.worldPressureText}` : ""}`.trim()
     };
   }
 
   async generateRoundNarrative(input: RoundNarrativeInput): Promise<RoundNarrative> {
+    const french = isFrenchLocale(input.locale);
     const extraPressure = [input.recentEventsText, input.countryPulseText].filter((value) => Boolean(value)).join(" ");
+    const title =
+      input.avgTension >= 66
+        ? french
+          ? "La pression regionale monte"
+          : "Regional Pressure Rises"
+        : input.appliedOrders > 0
+          ? french
+            ? "Les ordres reconfigurent l'equilibre"
+            : "Orders Reshape the Balance"
+          : french
+            ? "Tour resolu"
+            : "Round Resolved";
+
     return {
       type: input.avgTension >= 66 ? "major_crisis" : input.appliedOrders > 0 ? "order" : "system",
-      title: input.avgTension >= 66 ? "Regional Pressure Rises" : input.appliedOrders > 0 ? "Orders Reshape the Balance" : "Round Resolved",
-      description: `${input.playerCountryName} advances from ${input.fromDateLabel} to ${input.toDateLabel}. ${input.worldPressureText} ${input.ordersText} ${extraPressure}`.trim(),
+      title,
+      description: french
+        ? `${input.playerCountryName} avance de ${input.fromDateLabel} a ${input.toDateLabel}. ${input.worldPressureText} ${input.ordersText} ${extraPressure}`.trim()
+        : `${input.playerCountryName} advances from ${input.fromDateLabel} to ${input.toDateLabel}. ${input.worldPressureText} ${input.ordersText} ${extraPressure}`.trim(),
       mapChangeSummary: input.avgTension >= 66
-        ? "Tensions spread across the map and multiple actors harden their posture."
+        ? french
+          ? "Les tensions se propagent et plusieurs acteurs durcissent leur posture."
+          : "Tensions spread across the map and multiple actors harden their posture."
         : input.appliedOrders > 0
-          ? "Recent orders changed the balance of pressure, stability, and posture."
-          : "The world drifted forward with no direct player intervention.",
+          ? french
+            ? "Les ordres recents ont modifie la pression, la stabilite et la posture."
+            : "Recent orders changed the balance of pressure, stability, and posture."
+          : french
+            ? "Le monde a avance sans intervention directe du joueur."
+            : "The world drifted forward with no direct player intervention.",
       factionLabel: input.presetTitle,
       locationLabel: input.playerCountryName,
       highlights: [
-        input.ordersText || "No direct orders were submitted.",
-        `World pressure: stability ${input.avgStability}, wealth ${input.avgRichness}, tension ${input.avgTension}.`
+        input.ordersText || (french ? "Aucun ordre direct n'a ete soumis." : "No direct orders were submitted."),
+        french
+          ? `Pression mondiale: stabilite ${input.avgStability}, richesse ${input.avgRichness}, tension ${input.avgTension}.`
+          : `World pressure: stability ${input.avgStability}, wealth ${input.avgRichness}, tension ${input.avgTension}.`
       ]
     };
+  }
+
+  async generateNarrativeDecision(input: {
+    year: number;
+    month: number;
+    narrativeContext?: string;
+    narrativeMemory?: string[];
+  }): Promise<string> {
+    const memory = input.narrativeMemory?.length ? ` Memory: ${input.narrativeMemory.slice(0, 3).join(" | ")}` : "";
+    return `Mock narrative decision for ${input.year}-${input.month}.${memory}${input.narrativeContext ? ` Context: ${input.narrativeContext}` : ""}`;
+  }
+
+  async updateNarrativeMemory(_memory: string[]): Promise<void> {
+    return;
   }
 }

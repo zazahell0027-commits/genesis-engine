@@ -4,6 +4,8 @@ import { STRATEGIC_CITIES } from "../../assets/strategicCities";
 import type { GeoFeatureCollection } from "../map/types";
 import type { CountryFeatureProperties, CountryGeometry, PointFeatureProperties } from "./maplibreTypes";
 import type { OverlayMode } from "../map/MapChrome";
+import type { UiLocale } from "../../i18n";
+import { translateCountryName } from "../../i18n";
 
 const COUNTRY_ALIASES: Record<string, string> = {
   "bosnia and herzegovina": "bosnia and herz",
@@ -32,6 +34,129 @@ const POLITICAL_COLORS = [
   "#ba5f83",
   "#6c7f95"
 ];
+
+const COMPACT_WIDE_COUNTRIES = new Set([
+  "france",
+  "united kingdom",
+  "ireland",
+  "belgium",
+  "netherlands",
+  "denmark",
+  "switzerland",
+  "czech republic",
+  "austria",
+  "slovakia",
+  "hungary",
+  "croatia",
+  "serbia",
+  "bosnia and herz",
+  "montenegro",
+  "albania",
+  "greece",
+  "italy",
+  "japan"
+]);
+
+const ELONGATED_COUNTRIES = new Set([
+  "sweden",
+  "norway",
+  "finland",
+  "turkey",
+  "chile",
+  "ukraine",
+  "portugal"
+]);
+
+const ARCHIPELAGO_COUNTRIES = new Set([
+  "japan",
+  "new zealand",
+  "indonesia",
+  "philippines",
+  "united kingdom",
+  "france"
+]);
+
+type LabelProfile = {
+  compactWide: boolean;
+  elongated: boolean;
+  archipelago: boolean;
+  baseAngleDeg: number;
+  spanScale: number;
+  minSpan: number;
+  maxSpan: number;
+  curveFactor: number;
+  minSize: number;
+  maxSize: number;
+  sizeScale: number;
+};
+
+function getLabelProfile(countryId: string): LabelProfile {
+  const compactWide = COMPACT_WIDE_COUNTRIES.has(countryId);
+  const elongated = ELONGATED_COUNTRIES.has(countryId);
+  const archipelago = ARCHIPELAGO_COUNTRIES.has(countryId);
+
+  if (compactWide) {
+    return {
+      compactWide,
+      elongated,
+      archipelago,
+      baseAngleDeg: -12,
+      spanScale: 0.78,
+      minSpan: 8.5,
+      maxSpan: 30,
+      curveFactor: 0.006,
+      minSize: 11.4,
+      maxSize: 34,
+      sizeScale: 3.5
+    };
+  }
+
+  if (elongated) {
+    return {
+      compactWide,
+      elongated,
+      archipelago,
+      baseAngleDeg: -18,
+      spanScale: 0.7,
+      minSpan: 10,
+      maxSpan: 32,
+      curveFactor: 0.01,
+      minSize: 11.8,
+      maxSize: 40,
+      sizeScale: 4.1
+    };
+  }
+
+  if (archipelago) {
+    return {
+      compactWide,
+      elongated,
+      archipelago,
+      baseAngleDeg: -10,
+      spanScale: 0.74,
+      minSpan: 8.5,
+      maxSpan: 28,
+      curveFactor: 0.007,
+      minSize: 11.2,
+      maxSize: 36,
+      sizeScale: 3.7
+    };
+  }
+
+  return {
+    compactWide,
+    elongated,
+    archipelago,
+    baseAngleDeg: -14,
+    spanScale: 0.76,
+    minSpan: 9,
+    maxSpan: 30,
+    curveFactor: 0.008,
+    minSize: 11.2,
+    maxSize: 38,
+    sizeScale: 3.95
+  };
+}
 
 function normalize(value: string): string {
   return value
@@ -66,6 +191,35 @@ function coordinatesFromGeometry(geometry: Geometry): Position[] {
   return [];
 }
 
+function ringArea(ring: Position[]): number {
+  if (ring.length < 3) return 0;
+  let sum = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const [x1, y1] = ring[index];
+    const [x2, y2] = ring[(index + 1) % ring.length];
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum) / 2;
+}
+
+function dominantCoordinatesFromGeometry(geometry: Geometry): Position[] {
+  if (geometry.type === "Polygon") return geometry.coordinates[0] ?? [];
+  if (geometry.type === "MultiPolygon") {
+    let bestRing: Position[] = [];
+    let bestArea = 0;
+    for (const polygon of geometry.coordinates) {
+      const outerRing = polygon[0] ?? [];
+      const area = ringArea(outerRing);
+      if (area > bestArea) {
+        bestArea = area;
+        bestRing = outerRing;
+      }
+    }
+    return bestRing;
+  }
+  return [];
+}
+
 function bboxFromCoordinates(coordinates: Position[]): [number, number, number, number] {
   if (coordinates.length === 0) return [-12, 35, 42, 62];
 
@@ -86,6 +240,30 @@ function bboxFromCoordinates(coordinates: Position[]): [number, number, number, 
 
 function centroidFromBbox([minLon, minLat, maxLon, maxLat]: [number, number, number, number]): Position {
   return [(minLon + maxLon) / 2, (minLat + maxLat) / 2];
+}
+
+function centroidFromRing(ring: Position[]): Position {
+  if (ring.length < 3) return centroidFromBbox(bboxFromCoordinates(ring));
+
+  let areaTwice = 0;
+  let centroidX = 0;
+  let centroidY = 0;
+
+  for (let index = 0; index < ring.length; index += 1) {
+    const [x1, y1] = ring[index];
+    const [x2, y2] = ring[(index + 1) % ring.length];
+    const cross = x1 * y2 - x2 * y1;
+    areaTwice += cross;
+    centroidX += (x1 + x2) * cross;
+    centroidY += (y1 + y2) * cross;
+  }
+
+  if (Math.abs(areaTwice) < 1e-6) {
+    return centroidFromBbox(bboxFromCoordinates(ring));
+  }
+
+  const factor = 1 / (3 * areaTwice);
+  return [centroidX * factor, centroidY * factor];
 }
 
 function effectColor(kind: MapEffectKind): string {
@@ -122,13 +300,15 @@ export function buildCountryGeometries(geoData: GeoFeatureCollection): Map<strin
     if (!countryId) continue;
 
     const geometry = sourceFeature.geometry as unknown as Geometry;
-    const bbox = bboxFromCoordinates(coordinatesFromGeometry(geometry));
+    const dominantCoordinates = dominantCoordinatesFromGeometry(geometry);
+    const bbox = bboxFromCoordinates(dominantCoordinates.length > 0 ? dominantCoordinates : coordinatesFromGeometry(geometry));
+    const centroid = dominantCoordinates.length > 0 ? centroidFromRing(dominantCoordinates) : centroidFromBbox(bbox);
     geometries.set(countryId, {
       id: countryId,
       name,
       geometry,
       bbox,
-      centroid: centroidFromBbox(bbox)
+      centroid
     });
   }
 
@@ -139,8 +319,10 @@ export function makeCountryCollection(
   countries: CountryState[],
   geometries: Map<string, CountryGeometry>,
   selectedCountryId: string | null,
+  knownCountryIds: Set<string>,
   highlightedCountryIds: string[],
-  focusCountryIds: string[]
+  focusCountryIds: string[],
+  locale: UiLocale
 ): FeatureCollection<Geometry, CountryFeatureProperties> {
   const highlighted = new Set(highlightedCountryIds);
   const focused = new Set(focusCountryIds);
@@ -157,8 +339,9 @@ export function makeCountryCollection(
           id: country.id,
           properties: {
             countryId: country.id,
-            name: country.name,
+            name: translateCountryName(country.name, locale).toUpperCase(),
             fillColor: countryColor(country.id),
+            discovered: knownCountryIds.has(country.id),
             selected: country.id === selectedCountryId,
             highlighted: highlighted.has(country.id),
             focused: focused.has(country.id),
@@ -168,8 +351,8 @@ export function makeCountryCollection(
             army: country.army,
             industry: country.industry,
             descriptor: country.descriptor,
-            labelSize: Math.max(13, Math.min(36, 10 + Math.sqrt(Math.max(country.power, 12)) * 2.5)),
-            labelRank: 1000 - country.power
+            labelSize: Math.max(11, Math.min(34, 7.5 + Math.sqrt(Math.max((geometry.bbox[2] - geometry.bbox[0]) * (geometry.bbox[3] - geometry.bbox[1]), 1)) * 3.2)),
+            labelRank: Math.round(-((geometry.bbox[2] - geometry.bbox[0]) * (geometry.bbox[3] - geometry.bbox[1])) * 1000)
           },
           geometry: geometry.geometry
         };
@@ -178,23 +361,63 @@ export function makeCountryCollection(
   };
 }
 
+function buildLabelLine(geometry: CountryGeometry, countryId: string): { type: "LineString"; coordinates: Position[] } {
+  const profile = getLabelProfile(countryId);
+  const [minLon, minLat, maxLon, maxLat] = geometry.bbox;
+  const width = Math.max(0.8, maxLon - minLon);
+  const height = Math.max(0.6, maxLat - minLat);
+  const bboxCenter = centroidFromBbox(geometry.bbox);
+  const opticalCenterX = geometry.centroid[0] * 0.78 + bboxCenter[0] * 0.22;
+  const opticalCenterY = geometry.centroid[1] * 0.78 + bboxCenter[1] * 0.22;
+  const angleRad = profile.baseAngleDeg * (Math.PI / 180);
+  const ux = Math.cos(angleRad);
+  const uy = Math.sin(angleRad);
+  const nx = -uy;
+  const ny = ux;
+  const footprint = Math.sqrt(width * height);
+  const stretch = Math.max(
+    profile.minSpan,
+    Math.min(profile.maxSpan, 6 + footprint * profile.spanScale)
+  );
+  const curveAmplitude = Math.min(footprint * profile.curveFactor, stretch * 0.08);
+  const pointsCount = 4;
+
+  return {
+    type: "LineString",
+    coordinates: Array.from({ length: pointsCount }, (_, index) => {
+      const t = index / (pointsCount - 1);
+      const major = (-stretch / 2) + stretch * t;
+      const bend = (t - 0.5) * (t - 0.5) * 4 - 1;
+      const curve = bend * curveAmplitude;
+      return [
+        opticalCenterX + ux * major + nx * curve,
+        opticalCenterY + uy * major + ny * curve
+      ];
+    })
+  };
+}
+
 export function makeCountryLabelCollection(
   countries: CountryState[],
-  geometries: Map<string, CountryGeometry>
-): FeatureCollection<Point, CountryFeatureProperties> {
+  geometries: Map<string, CountryGeometry>,
+  knownCountryIds: Set<string>,
+  locale: UiLocale
+): FeatureCollection<Geometry, CountryFeatureProperties> {
   return {
     type: "FeatureCollection",
     features: countries
       .map((country) => {
         const geometry = geometries.get(country.id);
         if (!geometry) return null;
+        const profile = getLabelProfile(country.id);
         return {
           type: "Feature" as const,
           id: `label-${country.id}`,
           properties: {
             countryId: country.id,
-            name: country.name.toUpperCase(),
+            name: translateCountryName(country.name, locale).toUpperCase(),
             fillColor: countryColor(country.id),
+            discovered: knownCountryIds.has(country.id),
             selected: false,
             highlighted: false,
             focused: false,
@@ -204,12 +427,17 @@ export function makeCountryLabelCollection(
             army: country.army,
             industry: country.industry,
             descriptor: country.descriptor,
-            labelSize: Math.max(14, Math.min(42, 11 + Math.sqrt(Math.max(country.power, 12)) * 2.8)),
-            labelRank: 1000 - country.power
+            labelSize: Math.max(
+              profile.minSize,
+              Math.min(
+                profile.maxSize,
+                7.6 + Math.sqrt(Math.max((geometry.bbox[2] - geometry.bbox[0]) * (geometry.bbox[3] - geometry.bbox[1]), 1)) * profile.sizeScale
+              )
+            ),
+            labelRank: Math.round(-((geometry.bbox[2] - geometry.bbox[0]) * (geometry.bbox[3] - geometry.bbox[1])) * 1000)
           },
           geometry: {
-            type: "Point" as const,
-            coordinates: geometry.centroid
+            ...buildLabelLine(geometry, country.id)
           }
         };
       })

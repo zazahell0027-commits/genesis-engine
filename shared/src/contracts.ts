@@ -218,6 +218,19 @@ export type WorldIndicators = {
   conflictLevel: "Low" | "Medium" | "High";
 };
 
+export type SpatialKnowledgeTier = "limited" | "regional" | "global" | "orbital" | "lunar";
+
+export type SpatialProgressState = {
+  knowledgeTier: SpatialKnowledgeTier;
+  knownCountryIds: string[];
+  discoveryPercent: number;
+  minZoom: number;
+  spaceProgramScore: number;
+  orbitUnlocked: boolean;
+  moonUnlocked: boolean;
+  briefingLabel: string;
+};
+
 export type EventWindow = {
   title: string;
   rangeLabel: string;
@@ -272,6 +285,7 @@ export type GameState = {
   id: string;
   presetId: PresetId;
   preset: PresetSummary;
+  locale?: "fr" | "en";
   year: number;
   month: number;
   day: number;
@@ -299,6 +313,7 @@ export type GameState = {
   snapshots: RoundSnapshot[];
   tokenBalance: number;
   availableJumpOptions: JumpOption[];
+  spatialProgress: SpatialProgressState;
   uiState: GameUiState;
 };
 
@@ -326,6 +341,7 @@ export type CreateGameInput = {
   countryId: string;
   difficulty: DifficultyLevel;
   aiQuality: AIQuality;
+  locale?: "fr" | "en";
 };
 
 export type QueueOrderInput = {
@@ -372,6 +388,7 @@ export type AdvisorResponse = {
 export type AdvisorSuggestion = {
   id: string;
   label: string;
+  actionTag: string;
   rationale: string;
   impact: string;
   kind: TurnOrderKind;
