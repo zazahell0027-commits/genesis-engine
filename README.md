@@ -1,6 +1,6 @@
-# Genesis Engine (Pax-Inspired Sandbox)
+# Genesis Atlas
 
-Strategy sandbox inspired by Pax Historia with:
+Strategic atlas for alternate-history campaigns with:
 - Preset browser + launch flow
 - Full-screen map gameplay
 - Orders, quick actions, diplomacy, advisor
@@ -88,3 +88,4 @@ Persistent APIs:
 
 ## Docs
 - Architecture overview: `docs/ARCHITECTURE.md`
+- MapLibre tooling shortlist: `docs/maplibre-tooling.md`

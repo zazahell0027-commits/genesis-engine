@@ -6,6 +6,13 @@ import type { ArtifactMarker, CityMarker, EffectMarker, Feature, ProvinceFeature
 export type CountryLabelEntry = {
   feature: Feature;
   country: CountryState;
+  labelSize: number;
+  labelOpacity: number;
+  labelVisible: boolean;
+  labelAnchor: { x: number; y: number };
+  labelRotate: number;
+  labelPriority: number;
+  visualArea: number;
 };
 
 export type ProvinceLabelEntry = {

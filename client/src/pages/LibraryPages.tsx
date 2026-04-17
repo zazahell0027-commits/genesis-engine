@@ -58,7 +58,7 @@ export function FlagsPage(): React.JSX.Element {
         <div className="page-hero-copy">
           <span className="eyebrow">Surface reference</span>
           <h1>Drapeaux</h1>
-          <p>Page read-only inspiree des surfaces annexes de Pax Historia.</p>
+          <p>Page read-only inspiree des surfaces annexes de Genesis Atlas.</p>
         </div>
       </section>
 

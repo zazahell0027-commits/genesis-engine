@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { CountryState, MapArtifact, MapEffect, PresetSummary } from "@genesis/shared";
+import polylabel from "polylabel";
 import { STRATEGIC_CITIES } from "../assets/strategicCities";
 import {
   DEFAULT_VIEWBOX,
@@ -98,6 +99,135 @@ function toRings(geometry: GeoGeometry): number[][][] {
   return (geometry.coordinates as number[][][][]).flatMap((polygon) => polygon);
 }
 
+function projectRing(ring: number[][]): number[][] {
+  return ring.map(([lon, lat]) => {
+    const point = project(lon, lat);
+    return [point.x, point.y];
+  });
+}
+
+function projectRings(rings: number[][][]): number[][][] {
+  return rings.map((ring) => projectRing(ring));
+}
+
+function projectGeometryPolygons(geometry: GeoGeometry): number[][][][] {
+  if (geometry.type === "Polygon") {
+    return [projectRings(geometry.coordinates as number[][][])];
+  }
+
+  return (geometry.coordinates as number[][][][]).map((polygon) => projectRings(polygon));
+}
+
+function ringArea(ring: number[][]): number {
+  if (ring.length < 3) return 0;
+  let sum = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const [x1, y1] = ring[index];
+    const [x2, y2] = ring[(index + 1) % ring.length];
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum) / 2;
+}
+
+function largestPolygon(rings: number[][][][]): number[][][] {
+  let bestPolygon: number[][][] = [];
+  let bestArea = 0;
+
+  for (const polygon of rings) {
+    const outerRing = polygon[0] ?? [];
+    const area = ringArea(outerRing);
+    if (area > bestArea) {
+      bestArea = area;
+      bestPolygon = polygon;
+    }
+  }
+
+  return bestPolygon;
+}
+
+function normalizeLabelRotation(angle: number): number {
+  if (!Number.isFinite(angle)) return 0;
+  let normalized = angle % 180;
+  if (normalized > 90) normalized -= 180;
+  if (normalized < -90) normalized += 180;
+  return normalized;
+}
+
+function collectProjectedPoints(projectedPolygons: number[][][][]): number[][] {
+  const points: number[][] = [];
+  for (const polygon of projectedPolygons) {
+    for (const ring of polygon) {
+      for (const point of ring) {
+        points.push(point);
+      }
+    }
+  }
+  return points;
+}
+
+function labelRotateFromProjectedPolygons(projectedPolygons: number[][][][]): number {
+  const points = collectProjectedPoints(projectedPolygons);
+  if (points.length < 4) return 0;
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let meanX = 0;
+  let meanY = 0;
+
+  for (const [x, y] of points) {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    meanX += x;
+    meanY += y;
+  }
+
+  const width = Math.max(1e-6, maxX - minX);
+  const height = Math.max(1e-6, maxY - minY);
+  const aspectRatio = width / height;
+  if (aspectRatio > 0.85 && aspectRatio < 1.18) return 0;
+
+  meanX /= points.length;
+  meanY /= points.length;
+
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (const [x, y] of points) {
+    const dx = x - meanX;
+    const dy = y - meanY;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+
+  const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy) * (180 / Math.PI);
+  const normalized = normalizeLabelRotation(angle);
+  if (Math.abs(normalized) < 8) return 0;
+  return normalized;
+}
+
+function labelAnchorFromProjectedPolygons(projectedPolygons: number[][][][], fallback: { x: number; y: number }): { x: number; y: number } {
+  if (projectedPolygons.length === 0) return fallback;
+
+  const polygon = projectedPolygons.length === 1
+    ? projectedPolygons[0]
+    : largestPolygon(projectedPolygons);
+
+  if (polygon.length === 0) return fallback;
+
+  try {
+    const [x, y] = polylabel(polygon as number[][][], 0.01);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return fallback;
+    return { x, y };
+  } catch {
+    return fallback;
+  }
+}
+
 function ringsPath(rings: number[][][]): { path: string; centroid: { x: number; y: number }; bbox: Feature["bbox"] } {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -110,8 +240,8 @@ function ringsPath(rings: number[][][]): { path: string; centroid: { x: number; 
   const path = rings
     .map((ring) => {
       if (ring.length === 0) return "";
-      const [flon, flat] = ring[0];
-      const first = project(flon, flat);
+      const [firstX, firstY] = ring[0];
+      const first = { x: firstX, y: firstY };
       const commands = [`M ${first.x.toFixed(3)} ${first.y.toFixed(3)}`];
 
       minX = Math.min(minX, first.x);
@@ -123,8 +253,8 @@ function ringsPath(rings: number[][][]): { path: string; centroid: { x: number; 
       pointCount += 1;
 
       for (let i = 1; i < ring.length; i += 1) {
-        const [lon, lat] = ring[i];
-        const p = project(lon, lat);
+        const [x, y] = ring[i];
+        const p = { x, y };
         minX = Math.min(minX, p.x);
         minY = Math.min(minY, p.y);
         maxX = Math.max(maxX, p.x);
@@ -176,13 +306,18 @@ function buildCountryFeatures(geoData: GeoFeatureCollection): Feature[] {
       if (rings.length === 0) return null;
 
       const name = String(feature.properties.name ?? feature.properties.admin ?? "Unknown");
-      const projected = ringsPath(rings);
+      const projectedPolygons = projectGeometryPolygons(feature.geometry);
+      const projected = ringsPath(projectedPolygons.flat());
+      const labelAnchor = labelAnchorFromProjectedPolygons(projectedPolygons, projected.centroid);
+      const labelRotate = labelRotateFromProjectedPolygons(projectedPolygons);
       return {
         id: index,
         countryId: normalize(name),
         name,
         path: projected.path,
         centroid: projected.centroid,
+        labelAnchor,
+        labelRotate,
         bbox: projected.bbox
       } as Feature;
     })
@@ -208,13 +343,18 @@ function buildProvinceFeatures(provinceGeoData: GeoFeatureCollection): ProvinceF
       const parentCountryId = resolveCountryId(feature.properties.countryId ?? feature.properties.country);
       if (!parentCountryId) return null;
 
-      const projected = ringsPath(rings);
+      const projectedPolygons = projectGeometryPolygons(feature.geometry);
+      const projected = ringsPath(projectedPolygons.flat());
+      const labelAnchor = labelAnchorFromProjectedPolygons(projectedPolygons, projected.centroid);
+      const labelRotate = labelRotateFromProjectedPolygons(projectedPolygons);
       return {
         id: 100000 + index,
         countryId: parentCountryId,
         name: provinceName,
         path: projected.path,
         centroid: projected.centroid,
+        labelAnchor,
+        labelRotate,
         bbox: projected.bbox,
         provinceId,
         provinceName,
@@ -366,14 +506,12 @@ export function WorldGeoMap({
     () => selectCountryLabelFeatures({
       countryFeatures,
       countriesById,
-      selectedCountryId,
       zoomBand,
-      viewWidth: viewBox.width,
       labelDensityLimit,
       labelMinWidth,
       labelMinHeight
     }),
-    [countryFeatures, countriesById, selectedCountryId, zoomBand, viewBox.width, labelDensityLimit, labelMinWidth, labelMinHeight]
+    [countryFeatures, countriesById, zoomBand, labelDensityLimit, labelMinWidth, labelMinHeight]
   );
 
   const visibleProvinceFeatures = useMemo(() => (

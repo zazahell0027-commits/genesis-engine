@@ -93,8 +93,7 @@ export function getLodPolicy(context: LodContext): LodPolicy {
   const closeRules = spec.closeDetailRules;
 
   const showCountryLabels = context.showCountryLabels
-    && band.showCountryLabels
-    && (context.zoomBand !== "close" || !closeRules.countryLabelsRequireSelection || selection);
+    && band.showCountryLabels;
 
   const showRegionLabels = context.showMapElements
     && context.showRegionLabels

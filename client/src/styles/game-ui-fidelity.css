@@ -214,12 +214,14 @@
 }
 
 .app-shell.is-game-route .world-map-label {
-  fill: rgba(234, 241, 255, 0.64) !important;
-  stroke: rgba(3, 11, 28, 0.68);
-  stroke-width: 0.13;
-  opacity: 0.82;
-  font-weight: 700;
-  text-shadow: 0 0 0.12rem rgba(3, 9, 23, 0.85);
+  fill: rgba(235, 245, 255, 0.78) !important;
+  stroke: rgba(5, 12, 24, 0.88);
+  stroke-width: 0.16;
+  opacity: 0.85;
+  font-weight: 600;
+  font-variant-ligatures: none;
+  paint-order: stroke fill;
+  letter-spacing: 0.24em;
 }
 
 .app-shell.is-game-route .world-map-shell.zoom-far .world-map-label {
@@ -769,10 +771,13 @@
 }
 
 .app-shell.is-game-route .world-map-shell .world-map-label {
-  font-family: "Cinzel", "Times New Roman", serif;
+  font-family: "Cinzel", "Cormorant SC", "Times New Roman", serif;
   font-weight: 600;
-  stroke-width: 0.065;
-  opacity: 0.78;
+  font-variant-ligatures: none;
+  stroke: rgba(3, 9, 20, 0.9);
+  stroke-width: 0.14;
+  opacity: 0.82;
+  paint-order: stroke fill;
 }
 
 .app-shell.is-game-route .world-map-shell.zoom-far .world-map-label {

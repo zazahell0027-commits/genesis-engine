@@ -3,6 +3,17 @@ import type { Geometry, Position } from "geojson";
 
 export type MapViewMode = "terre" | "globe" | "orbite" | "lune";
 
+export type MapViewport = {
+  zoom: number;
+  width: number;
+  height: number;
+  center: [number, number];
+  bounds: [number, number, number, number];
+  bearing: number;
+  pitch: number;
+  pixelRatio: number;
+};
+
 export type MapLibreWorldMapProps = {
   countries: CountryState[];
   preset: PresetSummary;
@@ -59,6 +70,11 @@ export type CountryFeatureProperties = {
   industry: number;
   descriptor: string;
   labelSize: number;
+  labelOpacity: number;
+  labelVisible: boolean;
+  labelPriority: number;
+  labelRotate: number;
+  labelTracking: number;
   labelRank: number;
 };
 

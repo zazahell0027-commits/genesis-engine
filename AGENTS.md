@@ -4,8 +4,8 @@
 Avant de commencer une tache, lis `reports/next-task.md`.
 
 ## Maniere de travailler
-
-
+-enlever une tache terminer, valider par l'uttilisateur
+-
 ## Git (regles durables)
 - Ne pas push automatiquement.
 - Commit, push ou PR uniquement sur demande explicite de l'utilisateur.

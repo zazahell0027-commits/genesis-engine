@@ -1473,13 +1473,18 @@ svg {
 }
 
 .world-map-label {
-  font-family: "Cormorant SC", serif;
-  letter-spacing: 0.14em;
-  paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.52);
-  stroke-width: 0.1;
-  opacity: 0.56;
+  font-family: "Cormorant SC", "Cinzel", "Noto Serif Condensed", serif;
+  font-weight: 600;
+  font-variant-ligatures: none;
+  /* Pax Historia style: generous spacing and paint-order for stroke below fill */
+  paint-order: stroke fill;
+  /* Stronger stroke for readability on colored territories */
+  stroke: rgba(3, 11, 28, 0.85);
+  stroke-width: 0.14;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   user-select: none;
+  pointer-events: none;
 }
 
 .world-map-tooltip {
@@ -1952,6 +1957,9 @@ svg {
   z-index: 32;
   min-width: 16.5rem;
   max-width: 21rem;
+  max-height: min(72vh, 32rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.95rem 1rem 0.95rem;
   border-radius: 1.08rem;
   background:

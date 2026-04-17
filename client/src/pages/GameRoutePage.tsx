@@ -147,6 +147,23 @@ function isTextInputElement(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function resolveContextMenuPosition(anchorX: number, anchorY: number): { left: number; top: number } {
+  const margin = 12;
+  const panelWidth = 336;
+  const panelHeight = 512;
+  const left = typeof window === "undefined"
+    ? anchorX + margin
+    : clamp(anchorX + margin, margin, Math.max(margin, window.innerWidth - panelWidth - margin));
+  const top = typeof window === "undefined"
+    ? anchorY + margin
+    : clamp(anchorY + margin, margin, Math.max(margin, window.innerHeight - panelHeight - margin));
+  return { left, top };
+}
+
 export function GameRoutePage(props: {
   onError: (message: string | null) => void;
   onTokenBalanceChange: (value: number | null) => void;
@@ -182,6 +199,9 @@ export function GameRoutePage(props: {
   ));
   const busy = busyAction !== null;
   const { locale } = useUiLocale();
+  const mapContextMenuPosition = mapContextAction
+    ? resolveContextMenuPosition(mapContextAction.x, mapContextAction.y)
+    : null;
 
   function toggleLeftPanel(next: Exclude<OverlayPanel, "none">): void {
     setMapContextAction(null);
@@ -862,7 +882,7 @@ export function GameRoutePage(props: {
         {mapContextAction && (
           <div
             className="map-context-menu"
-            style={{ left: `${mapContextAction.x + 12}px`, top: `${mapContextAction.y + 12}px` }}
+            style={{ left: `${mapContextMenuPosition?.left ?? 12}px`, top: `${mapContextMenuPosition?.top ?? 12}px` }}
             role="menu"
             aria-label="Actions contextuelles"
         >
@@ -870,7 +890,7 @@ export function GameRoutePage(props: {
             <strong>{getContextPlaceLabel(mapContextAction)}</strong>
             <p>
               {mapContextAction.surfaceLabel}
-              {" · "}
+              {" | "}
               {mapContextAction.viewMode === "terre"
                 ? "Vue terrestre"
                 : mapContextAction.viewMode === "globe"

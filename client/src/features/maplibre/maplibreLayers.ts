@@ -2,6 +2,12 @@ import maplibregl from "maplibre-gl";
 import type { FeatureCollection, Geometry } from "geojson";
 import { LAYERS, SOURCES } from "./maplibreTypes";
 
+type StyleLayerLike = {
+  id: string;
+  type?: string;
+  sourceLayer?: string;
+};
+
 function firstSymbolLayerId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id;
 }
@@ -10,9 +16,28 @@ function firstCountryLabelLayerId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers?.find((layer) => layer.id.startsWith("label_country_"))?.id;
 }
 
+function isNativeCountryLabelLayer(layer: StyleLayerLike): boolean {
+  if (layer.type !== "symbol") return false;
+
+  const id = layer.id.toLowerCase();
+  const sourceLayer = typeof layer.sourceLayer === "string" ? layer.sourceLayer.toLowerCase() : "";
+  const signature = `${id} ${sourceLayer}`;
+
+  if (signature.includes("road")) return false;
+
+  return (
+    signature.includes("country")
+    || signature.includes("countries")
+    || signature.includes("nation")
+    || signature.includes("sovereign")
+    || signature.includes("admin0")
+    || signature.includes("admin-0")
+  );
+}
+
 function hideNativeCountryLabels(map: maplibregl.Map): void {
   for (const layer of map.getStyle().layers ?? []) {
-    if (!layer.id.startsWith("label_country_")) continue;
+    if (!isNativeCountryLabelLayer(layer)) continue;
     if (!map.getLayer(layer.id)) continue;
     map.setLayoutProperty(layer.id, "visibility", "none");
   }
@@ -105,28 +130,39 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
     type: "symbol",
     source: SOURCES.countryLabels,
     minzoom: 1.2,
-    maxzoom: 8.25,
-    filter: ["==", ["get", "discovered"], true],
+    maxzoom: 13.8,
     layout: {
       "symbol-placement": "line-center",
       "symbol-sort-key": ["get", "labelRank"],
       "text-field": ["get", "name"],
+      "text-font": ["Noto Serif Condensed SemiBold", "Noto Serif Condensed Regular"],
       "text-size": ["get", "labelSize"],
-      "text-letter-spacing": 0.09,
-      "text-max-angle": 10,
-      "text-max-width": 48,
-      "text-allow-overlap": false,
-      "text-ignore-placement": false,
+      "text-letter-spacing": ["coalesce", ["get", "labelTracking"], 0.12],
+      "text-max-width": 100,
+      "text-rotation-alignment": "map",
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
       "text-optional": true,
       "text-keep-upright": true,
-      "text-padding": 3
+      "text-max-angle": 18,
+      "text-padding": 1
     },
     paint: {
       "text-color": "rgba(242, 247, 255, 0.94)",
       "text-halo-color": "rgba(1, 7, 16, 0.78)",
-      "text-halo-width": 2.1,
-      "text-halo-blur": 0.8,
-      "text-opacity": ["interpolate", ["linear"], ["zoom"], 1.2, 0.9, 6.9, 0.82, 8.15, 0.04]
+      "text-halo-width": 2.5,
+      "text-halo-blur": 0.55,
+      "text-opacity": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        1.2,
+        ["*", 0.86, ["coalesce", ["get", "labelOpacity"], 1]],
+        8.6,
+        ["*", 0.96, ["coalesce", ["get", "labelOpacity"], 1]],
+        13.4,
+        ["*", 0.04, ["coalesce", ["get", "labelOpacity"], 1]]
+      ]
     }
   }, beforeCountryLabels);
 
@@ -134,7 +170,7 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
     id: LAYERS.cityDots,
     type: "circle",
     source: SOURCES.cities,
-    minzoom: 3.1,
+    minzoom: 4.8,
     filter: ["!", ["has", "point_count"]],
     paint: {
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 3.1, 2.1, 5.2, 3.2, 8.4, 4.8],
@@ -149,7 +185,7 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
     id: LAYERS.cityClusters,
     type: "circle",
     source: SOURCES.cities,
-    minzoom: 3.1,
+    minzoom: 4.8,
     filter: ["has", "point_count"],
     paint: {
       "circle-radius": ["interpolate", ["linear"], ["get", "point_count"], 2, 10, 8, 15, 20, 20],
@@ -163,7 +199,7 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
     id: LAYERS.cityClusterLabels,
     type: "symbol",
     source: SOURCES.cities,
-    minzoom: 3.1,
+    minzoom: 4.8,
     filter: ["has", "point_count"],
     layout: {
       "text-field": ["get", "point_count_abbreviated"],
@@ -180,12 +216,12 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
     id: LAYERS.cityLabels,
     type: "symbol",
     source: SOURCES.cities,
-    minzoom: 4.1,
+    minzoom: 5.8,
     filter: ["!", ["has", "point_count"]],
     layout: {
       "symbol-sort-key": ["get", "sort"],
       "text-field": ["get", "label"],
-      "text-size": ["interpolate", ["linear"], ["zoom"], 4.1, ["get", "labelSize"], 8.3, 15],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 5.8, ["get", "labelSize"], 8.3, 15],
       "text-offset": [0.7, 0.35],
       "text-anchor": "left",
       "text-allow-overlap": false,
@@ -196,7 +232,7 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
       "text-halo-color": "#081222",
       "text-halo-width": 1.7,
       "text-halo-blur": 0.25,
-      "text-opacity": ["interpolate", ["linear"], ["zoom"], 4.1, 0.62, 5.6, 0.94]
+      "text-opacity": ["interpolate", ["linear"], ["zoom"], 5.8, 0.62, 7.1, 0.94]
     }
   });
 
@@ -341,4 +377,8 @@ export function installMapLibreLayers(map: maplibregl.Map): void {
       "text-opacity": 0.86
     }
   });
+
+  if (map.getLayer(LAYERS.countryLabels)) {
+    map.moveLayer(LAYERS.countryLabels);
+  }
 }

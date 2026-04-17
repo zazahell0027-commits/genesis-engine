@@ -90,9 +90,9 @@ export default function App(): React.JSX.Element {
             path="/"
             element={(
               <PresetBrowserPage
-                title="Alternate history presets"
+                title="Genesis Atlas"
                 eyebrow="Selection phare"
-                description="Parcourez les mondes officiels et communautaires puis lancez une partie plein ecran style Pax."
+                description="Parcourez les mondes officiels et communautaires puis lancez une partie plein ecran dans l'atlas strategique."
                 browserData={browserData}
                 loading={loadingChrome}
                 recentGames={recentGames}

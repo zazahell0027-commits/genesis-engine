@@ -7,15 +7,18 @@ import {
   makeCitiesCollection,
   makeCountryCollection,
   makeCountryLabelCollection,
-  makeEffectCollection
+  makeEffectCollection,
+  getZoomBandFromMapLibreZoom
 } from "../features/maplibre/maplibreData";
 import { addOrUpdateGeoJsonSource, installMapLibreLayers } from "../features/maplibre/maplibreLayers";
+import { ensurePmtilesProtocol, installMapLibreInspect } from "../features/maplibre/maplibrePlugins";
 import {
   DEFAULT_STYLE_URL,
   LAYERS,
   SOURCES,
   type CountryFeatureProperties,
   type CountryGeometry,
+  type MapViewport,
   type MapLibreWorldMapProps,
   type MapViewMode
 } from "../features/maplibre/maplibreTypes";
@@ -54,6 +57,45 @@ function defaultViewModeFromProgress(knowledgeTier: string, orbitUnlocked: boole
   return "globe";
 }
 
+function readMapViewport(map: maplibregl.Map): MapViewport {
+  const canvas = map.getCanvas();
+  const pixelRatio = window.devicePixelRatio || 1;
+  const width = Math.max(1, canvas.clientWidth || Math.round(canvas.width / pixelRatio) || 1);
+  const height = Math.max(1, canvas.clientHeight || Math.round(canvas.height / pixelRatio) || 1);
+  const bounds = map.getBounds();
+
+  return {
+    zoom: map.getZoom(),
+    width,
+    height,
+    center: [map.getCenter().lng, map.getCenter().lat],
+    bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+    pixelRatio
+  };
+}
+
+function sameViewport(left: MapViewport | null, right: MapViewport): boolean {
+  if (!left) return false;
+  const close = (a: number, b: number): boolean => Math.abs(a - b) < 0.01;
+
+  return (
+    close(left.zoom, right.zoom)
+    && close(left.width, right.width)
+    && close(left.height, right.height)
+    && close(left.center[0], right.center[0])
+    && close(left.center[1], right.center[1])
+    && close(left.bounds[0], right.bounds[0])
+    && close(left.bounds[1], right.bounds[1])
+    && close(left.bounds[2], right.bounds[2])
+    && close(left.bounds[3], right.bounds[3])
+    && close(left.bearing, right.bearing)
+    && close(left.pitch, right.pitch)
+    && close(left.pixelRatio, right.pixelRatio)
+  );
+}
+
 export function MapLibreWorldMap({
   countries,
   preset,
@@ -78,11 +120,14 @@ export function MapLibreWorldMap({
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const popupDelayRef = useRef<number | null>(null);
   const popupHideRef = useRef<number | null>(null);
+  const viewportSyncFrameRef = useRef<number | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [countryGeometries, setCountryGeometries] = useState<Map<string, CountryGeometry>>(new Map());
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("balanced");
   const [briefExpanded, setBriefExpanded] = useState(true);
+  const [mapZoom, setMapZoom] = useState(spatialProgress.minZoom + 0.15);
+  const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
   const [viewMode, setViewMode] = useState<MapViewMode>(() => defaultViewModeFromProgress(
     spatialProgress.knowledgeTier,
     spatialProgress.orbitUnlocked,
@@ -95,13 +140,32 @@ export function MapLibreWorldMap({
     [countries]
   );
   const knownCountrySet = useMemo(() => new Set(spatialProgress.knownCountryIds), [spatialProgress.knownCountryIds]);
+  const labelZoomBand = getZoomBandFromMapLibreZoom(mapZoom);
   const countryCollection = useMemo(
     () => makeCountryCollection(countries, countryGeometries, selectedCountryId, knownCountrySet, highlightedCountryIds, focusCountryIds, uiLocale),
     [countries, countryGeometries, focusCountryIds, highlightedCountryIds, knownCountrySet, selectedCountryId, uiLocale]
   );
   const labelCollection = useMemo(
-    () => makeCountryLabelCollection(countries, countryGeometries, knownCountrySet, uiLocale),
-    [countries, countryGeometries, knownCountrySet, uiLocale]
+    () => {
+      if (!mapViewport) {
+        return { type: "FeatureCollection", features: [] } as FeatureCollection<Geometry, CountryFeatureProperties>;
+      }
+
+      return makeCountryLabelCollection(
+        countries,
+        countryGeometries,
+        knownCountrySet,
+        uiLocale,
+        labelZoomBand,
+        mapViewport,
+        {
+          selectedCountryId,
+          highlightedCountryIds,
+          focusCountryIds
+        }
+      );
+    },
+    [countries, countryGeometries, focusCountryIds, highlightedCountryIds, labelZoomBand, knownCountrySet, mapViewport, selectedCountryId, uiLocale]
   );
   const cityCollection = useMemo(() => makeCitiesCollection(countriesById), [countriesById]);
   const effectCollection = useMemo(
@@ -181,6 +245,8 @@ export function MapLibreWorldMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    ensurePmtilesProtocol();
+
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: styleUrl,
@@ -198,7 +264,6 @@ export function MapLibreWorldMap({
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
-    map.on("load", () => setMapReady(true));
     map.on("error", (event) => {
       setMapError(event.error?.message ?? "Erreur de chargement MapLibre");
     });
@@ -210,8 +275,48 @@ export function MapLibreWorldMap({
       className: "genesis-map-popup"
     });
     mapRef.current = map;
+    installMapLibreInspect(map);
+
+    const syncViewport = (): void => {
+      const next = readMapViewport(map);
+      setMapZoom((current) => (Math.abs(current - next.zoom) < 0.01 ? current : next.zoom));
+      setMapViewport((current) => (sameViewport(current, next) ? current : next));
+    };
+
+    const scheduleViewportSync = (): void => {
+      if (viewportSyncFrameRef.current !== null) return;
+      viewportSyncFrameRef.current = window.requestAnimationFrame(() => {
+        viewportSyncFrameRef.current = null;
+        syncViewport();
+      });
+    };
+
+    const handleLoad = (): void => {
+      setMapReady(true);
+      syncViewport();
+    };
+
+    map.on("load", handleLoad);
+    map.on("move", scheduleViewportSync);
+    map.on("zoom", scheduleViewportSync);
+    map.on("rotate", scheduleViewportSync);
+    map.on("pitch", scheduleViewportSync);
+    map.on("resize", syncViewport);
+    map.on("moveend", syncViewport);
+    syncViewport();
 
     return () => {
+      map.off("load", handleLoad);
+      map.off("move", scheduleViewportSync);
+      map.off("zoom", scheduleViewportSync);
+      map.off("rotate", scheduleViewportSync);
+      map.off("pitch", scheduleViewportSync);
+      map.off("resize", syncViewport);
+      map.off("moveend", syncViewport);
+      if (viewportSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewportSyncFrameRef.current);
+        viewportSyncFrameRef.current = null;
+      }
       if (popupDelayRef.current !== null) {
         window.clearTimeout(popupDelayRef.current);
         popupDelayRef.current = null;
@@ -363,13 +468,30 @@ export function MapLibreWorldMap({
       const properties = features[0]?.properties as Partial<CountryFeatureProperties> | undefined;
       const countryId = properties?.countryId ?? null;
       const countryName = properties?.name ?? null;
+      const hasWaterFeature = !countryId && map.queryRenderedFeatures(event.point).some((feature) => {
+        const layerId = feature.layer?.id?.toLowerCase() ?? "";
+        const sourceLayer = (feature as { sourceLayer?: string }).sourceLayer?.toLowerCase() ?? "";
+        const featureClass = typeof feature.properties?.class === "string" ? feature.properties.class.toLowerCase() : "";
+        const featureType = typeof feature.properties?.type === "string" ? feature.properties.type.toLowerCase() : "";
+        return (
+          layerId.includes("water")
+          || sourceLayer.includes("water")
+          || featureClass.includes("water")
+          || featureClass.includes("ocean")
+          || featureType.includes("water")
+          || featureType.includes("ocean")
+        );
+      });
+      const isVoidSurface = !countryId && !hasWaterFeature && (viewMode === "terre" || viewMode === "globe");
       const surfaceKind = countryId
         ? "country"
         : viewMode === "lune"
           ? "lunar"
           : viewMode === "orbite"
             ? "orbital"
-            : "ocean";
+            : isVoidSurface
+              ? "void"
+              : "ocean";
       const surfaceLabel = countryId
         ? countryName ?? (uiLocale === "fr" ? "Zone terrestre" : "Land zone")
         : viewMode === "lune"
@@ -380,9 +502,13 @@ export function MapLibreWorldMap({
             ? uiLocale === "fr"
               ? "Espace orbital"
               : "Orbital space"
-            : uiLocale === "fr"
-              ? "Zone maritime / vide cartographique"
-              : "Maritime zone / empty map";
+            : isVoidSurface
+              ? uiLocale === "fr"
+                ? "Vide cartographique"
+                : "Map void"
+              : uiLocale === "fr"
+                ? "Zone maritime"
+                : "Maritime zone";
       onRequestContextMenu?.({
         countryId,
         countryName,

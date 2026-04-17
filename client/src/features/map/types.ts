@@ -37,6 +37,12 @@ export type Feature = {
   name: string;
   path: string;
   centroid: { x: number; y: number };
+  labelAnchor?: { x: number; y: number };
+  labelRotate?: number;
+  labelSize?: number;
+  labelOpacity?: number;
+  labelVisible?: boolean;
+  labelPriority?: number;
   bbox: { x: number; y: number; width: number; height: number };
 };
 

@@ -25,8 +25,8 @@ export function ChromeHeader(props: {
           <GlassGlobeIcon />
         </span>
         <span className="brand-text">
-          <span>Pax</span>
-          <span>Historia</span>
+          <span>Genesis</span>
+          <span>Atlas</span>
         </span>
       </Link>
 
